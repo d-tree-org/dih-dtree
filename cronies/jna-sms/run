@@ -1,0 +1,7 @@
+#!/usr/bin/env python
+from src import sms
+
+#pip install pandas sqlalchemy
+
+sms.send_from_csv('weka_file.csv')
+# sms.main()
