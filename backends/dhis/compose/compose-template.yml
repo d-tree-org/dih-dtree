@@ -1,0 +1,68 @@
+version: '3.7'
+services:
+  ${proj}-dhis-db:
+    image: dhis-base
+    build:
+        context: .
+        dockerfile: compose/dih.dockerfile
+    container_name: ${proj}-dhis-db
+    env_file:
+      - ${env_file}  
+    volumes: 
+      - ${proj}-db:/var/lib/postgresql/data
+      - ${proj}-db:/var/run/postgresql
+      - ${proj}-common:/${proj}/common/
+      - ${dhis2_data}:/data/.backup/:ro
+    entrypoint: start server postgres
+    networks:
+      - dih-network
+
+  ${proj}-dhis-web:
+    image: dhis-base
+    container_name: ${proj}-dhis-web
+    entrypoint: start server nginx
+    depends_on: 
+      - ${proj}-dhis
+    ports:
+      - '80:80'
+      - '443:443'
+    env_file:
+      - ${env_file}  
+    networks:
+      - dih-network
+    volumes:
+      - dih-common:/etc/letsencrypt
+      - ${proj}-common:/${proj}/common/
+
+  ${proj}-dhis:
+    image: dhis-base
+    container_name: ${proj}-dhis
+    entrypoint: start server dhis2
+    depends_on:
+        - ${proj}-dhis-db
+    env_file:
+      - ${env_file}  
+    networks:
+      - dih-network
+    volumes:
+      - ${proj}-db:/var/run/postgresql
+      - ${proj}-common:/${proj}/common/
+      - ${metadata}:/data/.backup/:ro
+
+volumes:
+  ${proj}-db:
+    driver: local
+    name: ${proj}-db-volume
+
+  ${proj}-common:
+    driver: local
+    name: ${proj}-common
+  
+  dih-common:
+    name: dih-common
+    external: true
+
+networks:
+  dih-network:
+    name: dih-network
+    external: true

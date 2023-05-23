@@ -1,0 +1,67 @@
+version: '3.7'
+services:
+  jna-dhis-db:
+    image: dhis-base
+    build:
+        context: .
+        dockerfile: compose/dih.dockerfile
+    container_name: jna-dhis-db
+    env_file:
+      - compose/jna.env  
+    volumes: 
+      - jna-db:/var/lib/postgresql/data
+      - jna-db:/var/run/postgresql
+      - jna-common:/jna/common/
+    entrypoint: start server postgres
+    networks:
+      - dih-network
+
+  jna-dhis-web:
+    image: dhis-base
+    container_name: jna-dhis-web
+    entrypoint: start server nginx
+    depends_on: 
+      - jna-dhis
+    ports:
+      - '80:80'
+      - '443:443'
+    env_file:
+      - compose/jna.env  
+    networks:
+      - dih-network
+    volumes:
+      - dih-common:/etc/letsencrypt
+      - jna-common:/jna/common/
+
+  jna-dhis:
+    image: dhis-base
+    container_name: jna-dhis
+    entrypoint: start server dhis2
+    depends_on:
+        - jna-dhis-db
+    env_file:
+      - compose/jna.env  
+    networks:
+      - dih-network
+    volumes:
+      - jna-db:/var/run/postgresql
+      - jna-common:/jna/common/
+      - ../dhis/.backup:/data/.backup/:ro
+
+volumes:
+  jna-db:
+    driver: local
+    name: jna-db-volume
+
+  jna-common:
+    driver: local
+    name: jna-common
+  
+  dih-common:
+    name: dih-common
+    external: true
+
+networks:
+  dih-network:
+    name: dih-network
+    external: true

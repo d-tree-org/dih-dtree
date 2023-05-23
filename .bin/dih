@@ -1,0 +1,45 @@
+#!/bin/bash
+
+function clear(){
+    docker container ls -aq | xargs docker stop 2>/dev/null| xargs docker rm 2>/dev/null
+    for it in {volume,network}; do 
+        docker $it ls  -q | xargs docker $it rm 2>/dev/null ; done
+}
+
+function generate_compose_file(){
+    env_file=$1
+    proj=$(basename "$env_file"| grep -Po '^[^.]+')
+    base=$(dirname "$env_file")
+    compose_file="$(dirname $base)/$proj-compose.yml"
+    cp $base/compose-template.yml $compose_file 
+
+    echo -e "\n proj=$proj \n env_file=$env_file" >> $env_file
+    sed -ri 's/(^\W*|\s*$)//g' $env_file 
+    while IFS='=' read k v; do [ -z $k ] && continue;
+        key='\$\{?'"$k"'\}?'
+        value=$(echo $v | sed -r 's/[&/\\]/\\&/g')
+        sed -ri "s/$key/$value/g" $compose_file
+    done < $env_file
+    sed -ri '/^\W*\$\{\w+\}\W*:\W*\/data.*/d' $compose_file        #remove empty data backups volumes
+    sed -ri 's/^\W*((metadata|dhis2_data)\W*=)/#\1/g' $env_file    #comment out mounts options from env file
+    sed -ri "/(^\W*(proj|env_file)\W*=.*|^\s*$)/d" $env_file       #set proj environment variable
+    echo "proj=$proj" >> $env_file
+    # docker-compose -f $compose_file up -d
+
+}
+
+function create_shared_docker_resources(){
+    docker network create --subnet=172.10.16.0/24  dih-network  2>/dev/null
+    docker volume create  dih-common 2>/dev/null
+}
+
+case $1 in
+    clear) clear ;;
+    common) create_shared_docker_resources ;;
+    *.env)  generate_compose_file $1 ;;
+    *.yml) docker-compose -f $1 up -d ;; 
+    logs) docker-compose -f $2 logs -f & ;; 
+    run) docker exec -it dih-cronies run $1 ;; 
+esac
+
+
