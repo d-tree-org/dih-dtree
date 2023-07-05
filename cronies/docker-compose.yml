@@ -8,39 +8,13 @@ services:
         dockerfile: dih.dockerfile
     env_file:
       - .env
-    ports:
-      - '127.0.0.1:5444:5444' 
     volumes: 
-      - ~/.dih.configs:/dih/cronies/config/
+      - ~/.dih.configs:/etc/cronies/config/
     entrypoint: start cronies runner
     networks:
       - dih-network
 
-  jna-letsencrypt:
-    image: dih-base-cronies
-    container_name: dih-letsencrypt
-    entrypoint: start cronies letsencrypt
-    ports:
-      - 24322:80
-    env_file:
-      - .env  
-    volumes: 
-      - dih-common:/etc/letsencrypt
-      - dih-common:/dih/common/
-    networks:
-      - dih-network
-
-
 networks:
   dih-network:
     name: dih-network
-    driver: bridge
-    ipam:
-      driver: default
-      config:
-        - subnet: 172.10.16.0/24
-
-
-volumes:
-  dih-common:
-    name: dih-common
+    external: true

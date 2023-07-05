@@ -13,7 +13,7 @@ function setup_python(){
 function install_pip_dependencies(){
     pip --version
     regx='^\W*#\W*pip\s*\K.*' 
-    files=$(find /dih/cronies -name run -maxdepth 2  -type f -exec grep -lP $regx {} '+' | xargs )
+    files=$(find /dih/cronies -name run -maxdepth 3  -type f -exec grep -lP $regx {} '+' | xargs )
     grep -ohP $regx $files |
         sed -r 's/(install|\-\-upgrade)//g; s/(^\s*|\s*$)//g; s/\s+/ /g' | sort -u |
         xargs pip install --upgrade pip 
@@ -21,18 +21,18 @@ function install_pip_dependencies(){
 }
 
 function install_cron(){
-    mkdir - /dhis/cronies/logs
+    mkdir -p /dih/cronies/logs
     touch $cron_log;
-    regx='^#cron_time\s*\K.*';
-    files=$(find /dih/cronies -name run -maxdepth 2 -type f -exec grep -lP $regx {} '+' | xargs )
+    regx='^\W*#\W*cron_time\s*\K.*';
+    files=$(find /dih/cronies -name run -maxdepth 3 -type f -exec grep -lP $regx {} '+' | xargs )
     { 
         echo -e "SHELL=/bin/bash\nPATH=$PATH";
         grep -HoP $regx $files|  
             while IFS=':' read -r script cron; do 
-            dir="$(dirname $script)"
-            echo "$cron run ${dir##*/}" ; done
+                cmd=$(sed -E 's|/+|.|g;s|.+cronies.(.+).run|\1|g'<<<$script)
+                echo "$cron run $cmd" ; done
     } | crontab -
-    sed -ri 's/^#cron_time\W.*//g' $files
+    sed -ri 's/^\W*#\W*cron_time\W.*//g' $files
 }
 
 function should_initialize(){
@@ -46,5 +46,5 @@ should_initialize \
 && install_pip_dependencies \
 && install_cron
 
-tail -f $cron_log
-tail -f /dev/null
+echo "configuration logs are $cron_log"
+tail -f $cron_log || tail -f /dev/null

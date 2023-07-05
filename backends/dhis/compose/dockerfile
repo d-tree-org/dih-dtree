@@ -1,0 +1,19 @@
+FROM debian:bullseye
+
+RUN apt-get update && apt-get -y install apt-utils wget vim curl xz-utils cron procps  netcat libterm-readline-gnu-perl
+
+#openjdk-11-jre-headless netcat nginx postgresql postgis postgresql-contrib --fix-missing;
+RUN ln -sf /usr/share/zoneinfo/Africa/Nairobi /etc/localtime
+RUN groupadd dih
+
+
+ENV PATH="${PATH}:/dih/bin:/dih/lib/python/bin"
+COPY --chown=root:dih libs/python*.tar.xz /dih/lib/
+COPY --chown=root:dih ./  /dih/
+RUN mkdir -p /dih/common /dih/bin \
+    && chown :dih -R /dih \
+    && chmod  770 -R /dih 
+
+WORKDIR /dih/start
+# ENTRYPOINT  /dih/bin/start
+ENTRYPOINT  bash 

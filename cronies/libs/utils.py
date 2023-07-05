@@ -1,11 +1,10 @@
-import base64, json, collections
+import json, collections, logging
 from concurrent.futures import ThreadPoolExecutor
 import concurrent.futures
 from typing import Callable, Any
 from subprocess import Popen, PIPE
 from datetime import datetime
 from dateutil.relativedelta import relativedelta
-
 
 class _Command:
     def __init__(self, cmd, bg=True):
@@ -44,19 +43,19 @@ def do_chunks(
     source: list,
     chunk_size: int,
     func: Callable[..., Any],
-    consumer_func: Callable[..., None]=print,
-    thread_count:int=5
+    consumer_func: Callable[..., None] = print,
+    thread_count: int = 5,
 ):
     with concurrent.futures.ThreadPoolExecutor(max_workers=thread_count) as ex:
         chunks = [source[i : i + chunk_size] for i in range(0, len(source), chunk_size)]
-        tasks=[ex.submit(func,chunk)for chunk in chunks]
-        for i,res in enumerate(concurrent.futures.as_completed(tasks)):
-            r=res.result()
-            consumer_func(i,r)
+        tasks = [ex.submit(func, chunk) for chunk in chunks]
+        for i, res in enumerate(concurrent.futures.as_completed(tasks)):
+            r = res.result()
+            consumer_func(i, r)
 
 
-def get_config(config_path="/dih/cronies/config/jna-dhis-config.json"):
-    with open(config_path) as file:
+def get_config(config_file="/etc/cronies/config/config.json"):
+    with open(config_file) as file:
         x = json.load(file)
     return collections.namedtuple("p", x.keys())(*x.values())
 
@@ -77,8 +76,10 @@ def to_file(file_name, text, mode="w"):
         return file.write(text)
 
 
-def log_response(rs,dot=None):
-    if dot and rs.response_code==200 or rs.response_code==201: 
+def log_response(rs, dot=None):
+    if dot and rs.response_code == 200 or rs.response_code == 201:
         print(".", end="", flush=True)
-    else: print(rs.text)    
-    return rs.json().get('status')
+    else:
+        print(rs.text)
+    return rs.json().get("status")
+

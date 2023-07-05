@@ -5,9 +5,9 @@ from googleapiclient.errors import HttpError
 from oauth2client.service_account import ServiceAccountCredentials
 from googleapiclient.http import MediaFileUpload
 from googleapiclient.http import MediaIoBaseDownload
-import httplib2
 import io
 import pandas as pd
+
 
 class Drive:
     def __init__(self, key: dict):
@@ -17,36 +17,24 @@ class Drive:
                 "https://www.googleapis.com/auth/drive.readonly",
             ]
             credentials = ServiceAccountCredentials.from_json_keyfile_dict(key, scope)
-            http = httplib2.Http(timeout=30)
             self.drive = build("drive", "v3", credentials=credentials)
         except Exception as e:
             print(e)
 
-    def _exists(self, it):
-        return it is not None
-
-    def _is_folder(self, item):
-        return item["mimeType"] == "application/vnd.google-apps.folder"
-
     def get_files_in_folder(self, folder_id):
-        try:
-            res = {"id": folder_id}
-            res["files"] = (
-                self.drive.files()
-                .list(
-                    q=f"parents in '{folder_id}'",
-                    fields="files(id, name, mimeType,parents)",
-                )
-                .execute()
-                .get("files", res)
-            )
-            if res["files"] is None:
-                return None
-            for f in filter(self._is_folder, res["files"]):
-                f["files"] = self.get_files_in_folder(f["id"])["files"]
-            return res
-        except HttpError as error:
-            print(f"An error occurred: {error}")
+        folder = {
+            "id": folder_id,
+            "files": self.drive.files().list(
+                q=f"parents in '{folder_id}'",
+                fields="files(id, name, mimeType,parents)",
+            ),
+        }
+        folder_only = (
+            lambda x: x.get("mimeType") == "application/vnd.google-apps.folder",
+        )
+        for f in filter(folder.get("files"), folder_only):
+            f["files"] = self.get_files_in_folder(f["id"])
+        return folder
 
     def upload_excel_file(self, file_name, to_folder_id):
         try:
@@ -72,7 +60,6 @@ class Drive:
             done = False
             while done is False:
                 _, done = downloader.next_chunk(num_retries=5)
-                print('.',end='')
             file.seek(0)
             return file.getvalue()
         except HttpError as error:
@@ -90,5 +77,5 @@ class Drive:
         request = self.drive.files().get_media(fileId=file_id)
         return self.download(request)
 
-    def get_df(self,file,sheet_name):
-       return pd.read_excel(self.download_excel_file(file),sheet_name)
+    def get_df(self, file, sheet_name):
+        return pd.read_excel(self.download_excel_file(file), sheet_name)

@@ -1,19 +1,20 @@
 #!/bin/bash
 
+source common.sh
 function setup_tomcat(){
-    echo 'setting up tomcat'
-    apt-get remove --purge nginx postgresql postgis;
-    mkdir -p /opt/tomcat/
-    cd /opt/tomcat
-    wget -O apache-tomcat.tar.gz --progress=dot:giga ${tomcat_url}
-    
-    tar xvfz apache*.tar.gz
-    mv apache-tomcat*/* /opt/tomcat/.
-    rm -rf apache*
-    rm -rf /opt/tomcat/webapps/* 
-    find /dih/backends/scripts \! -iname *dhis2* -type f -delete
 
-    cat<<EOF | sed -r 's/^\s*//g' >>/opt/tomcat/bin/setenv.sh \
+    [ -d /opt/tomcat ] && return;
+
+    apt-get install -y openjdk-11-jre-headless netcat --fix-missing;
+
+    echo 'setting up tomcat'
+    mkdir -p /opt/tomcat/ && cd /opt/tomcat
+    wget -O apache-tomcat.tar.gz --progress=dot:giga ${tomcat_url}
+    tar xvfz apache*.tar.gz && mv apache-tomcat*/* /opt/tomcat/.
+
+    rm -rf apache* /opt/tomcat/webapps/* 
+
+    cat<<EOF | trim >>/opt/tomcat/bin/setenv.sh \
     && chmod +x /opt/tomcat/bin/setenv.sh
         #!/bin/bash
         export JAVA_OPTS="$JAVA_OPTS -Xms1500m -Xmx2000m -Dfile.encoding=UTF8" #this is for a limited instance
@@ -21,24 +22,30 @@ function setup_tomcat(){
 EOF
 }
 
-base='/dih/backends'
+base='/dih'
 function setup_dhis2(){
+
+    quiet id dhis && [ -f /home/dhis/config/dhis.conf] && return; 
+
     echo 'setting up dhis2'
     useradd -d /home/dhis -m dhis -s /bin/false
     mkdir /home/dhis/config
     mv $base/conf/dhis.conf /home/dhis/config/dhis.conf
     chown -R dhis /home/dhis
+
     if [ -n $dhis_password ];
         then sed -ri "s/connection.password.*/connection.password = $dhis_password/g" /home/dhis/config/dhis.conf;
         unset dhis_password;
     fi
-    wget --progress=dot:giga -O ROOT.war https://releases.dhis2.org/2.38/dhis2-stable-2.38.3.war
+    wget --progress=dot:giga -O ROOT.war ${dhis_war} 
     mv ROOT.war /opt/tomcat/webapps/ROOT.war
-    rm -r $base/conf
 }
 
 admin_pass=$dhis_admin_password;
 function set_admin_password(){
+
+    [ -z $dhis_admin_password ] && return;
+
     echo "attempt to change the dhis admin password away from the default one"; 
     auth="admin:district"
     url='http://localhost:8080/api/users'
@@ -46,9 +53,9 @@ function set_admin_password(){
 
     [ -n $admin_pass ] && \
     curl -s -u $auth $url/$user_id |
-    sed -r "s/\"previousPasswords/\"password\":\"$dhis_admin_password\",\"previousPasswords/g" |
-    curl -u $auth -sX PUT -H "Content-type: application/json" $url/$user_id  -d @- |
-    grep -qP '\bOK\b' && echo "successfully changed admin password" || echo "could not change password reusing the default"
+        sed -r "s/\"previousPasswords/\"password\":\"$dhis_admin_password\",\"previousPasswords/g" |
+        curl -u $auth -sX PUT -H "Content-type: application/json" $url/$user_id  -d @- |
+        grep -qP '\bOK\b' && echo "successfully changed admin password" || echo "could not change password reusing the default"
     unset dhis_admin_password
 }
 
@@ -65,19 +72,10 @@ function import_metadata(){
             -d @/data/.backup/metadata.json  http://localhost:8080/api/metadata  \
         && curl -H 'Content-Type: application/json' \
             -u "admin:$admin_pass" \
-            -d @/data/.backup/data_set.json  http://localhost:8080/api/metadata  
+            -d @/data/.backup/data_set.json  http://localhost:8080/api/metadata  \
+        && rm -rf /data.backup/metadata.json
 }
 
-
-function set_up_start_sh(){
-    cat<<EOF | sed -r 's/^\s*//g' \
-        > /dih/backends/scripts/start_dhis2.sh \
-        && echo dhis2 done >> /dih/common/report_setup_done.log
-        #!/bin/bash
-        #start tomcat server
-        /opt/tomcat/bin/catalina.sh run
-EOF
-}
 
 
 function on_war_deployed(){
@@ -87,7 +85,6 @@ function on_war_deployed(){
             echo "***** $line"
             set_admin_password \
             && import_metadata \
-            && set_up_start_sh 
             # && ask_postgresql_to_change_admin_password 
             echo -e "\033[0m"
         else

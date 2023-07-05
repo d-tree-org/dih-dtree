@@ -36,10 +36,15 @@ function create_shared_docker_resources(){
 case $1 in
     clear) clear ;;
     common) create_shared_docker_resources ;;
-    *.env)  generate_compose_file $1 ;;
-    *.yml) docker-compose -f $1 up -d ;; 
+    *.env)  create_shared_docker_resources && generate_compose_file $1 ;;
+    *.yml) create_shared_docker_resources; docker-compose -f $1 up -d ;; 
     logs) docker-compose -f $2 logs -f & ;; 
-    run) docker exec -it dih-cronies run $1 ;; 
+    run) docker exec -u $2 dih-cronies run $3 $4;;
+    down) docker-compose -f $2 down ;;
+    stop)  docker ps  | grep "$2" | awk '{print $1}' | xargs docker stop ;; 
+    rm)  docker container ls -a  | grep "$2" | awk '{print $1}' | xargs docker stop |xargs docker rm;; 
 esac
+
+
 
 

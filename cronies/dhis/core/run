@@ -1,0 +1,12 @@
+#!/bin/bash
+
+month=$(head -1 months)
+echo $month
+echo poa;
+[ -z $month ] && exit
+echo mambo;
+run jna-dhis $month
+#run dev-jna-dhis $month
+sed -i '1d' months
+
+

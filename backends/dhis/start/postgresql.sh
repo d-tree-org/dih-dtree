@@ -1,19 +1,26 @@
 #!/bin/bash
 
-base='/dih/backends'
+source common.sh
+base='/dih'
 function setup_postgresql(){
-    apt-get remove --purge -y  openjdk-11-jre-headless nginx && apt-get autoremove -y;
+    apt-get install -y netcat postgresql postgis postgresql-contrib --fix-missing;
     pg_version=$(pg_lsclusters| grep -v missing | grep -Eo '^[0-9]*'|head -1)
     sed -ir "s/{version}/$pg_version/g" $base/conf/postgresql.conf 
     mv $base/conf/postgresql.conf /etc/postgresql/$pg_version/main/postgresql.conf
     chown postgres -R /var/lib/postgresql/
     chmod +r  /etc/postgresql/$pg_version/main/postgresql.conf
     echo 'host    all    all    172.10.0.0/16    md5' >> /etc/postgresql/$pg_version/main/pg_hba.conf
-    pg_ctlcluster $pg_version main start
     rm -r $base/conf
-    echo 'finished setup postgresql server' >> /dih/common/report_setup_done.log;
 }
 
+start_postgres(){
+    pg_version=$(pg_lsclusters| grep -v missing | grep -Eo '^[0-9]*'|head -1)
+    status=$(pg_ctlcluster $pg_version main status)
+    [[ $status == *"online" ]] \
+    && pg_ctlcluster $pg_version main restart \
+    || pg_ctlcluster $pg_version main start 
+    
+}
 
 function update_admin_password(){
     [[ -z $dhis_admin_password ]] && return;
@@ -33,20 +40,19 @@ SQL
 
 
 function import_database(){
-    echo 'looking for backup file';
-    [ ! -f /data/.backup/dhis2.backup.sql ] && return;
-    echo 'file found now executing the queries';
-    runuser -u postgres -- psql dhis2 < /data/.backup/dhis2.backup.sql \
+    backup_file=/data/.backup/db.sql.xz;
+    echo "looking for backup file: $backup_file";
+    [ ! -f $backup_file ] && echo 'backup file not found now proceeding..' && return;
+    
+    xz -d $backup_file && echo 'file found now executing the queries';
+    runuser -u postgres -- psql dhis2 < /data/.backup/db.sql \
     && update_admin_password 
 }
 
 
 function setup_dhis2_db(){
     cd /var/lib/postgresql/
-    runuser -u postgres -- psql << SQL  \
-    && import_database \
-    && echo 'dhis2_database_set'|nc -q 1 ${proj}-dhis 12345 \
-    && listen_change_password_request &
+    runuser -u postgres -- psql << SQL  && import_database 
         create user dhis with password '$dhis_password';
         create database dhis2;
         grant all on database dhis2 to dhis;
@@ -60,7 +66,7 @@ SQL
 
 
 function listen_change_password_request(){
-  echo 'waiting to see if password change will be requested'
+  echo 'Waiting to see if password change will be requested'
   while read -r line && [[ $line != "change" ]]; 
   do echo "receive $line"; done < <(nc -l -p 12345)
   update_admin_password
@@ -68,18 +74,14 @@ function listen_change_password_request(){
 
 
 function start(){
-    cat<<EOF \
-    | sed -r 's/^\s*//g' >$base/scripts/start_postgres.sh \
-    && chmod u+x $base/scripts/start_postgres.sh\
-    && tail -f /dih/common/report_setup_done.log
-        #!/bin/bash
-        pg_version=$(pg_lsclusters| grep -v missing | grep -Eo '^[0-9]*'|head -1);
-        pg_ctlcluster $pg_version main start;
-        tail -f /dih/common/report_setup_done.log
-EOF
+    if [ -d $base/conf ] ; then 
+        setup_postgresql && start_postgres  && setup_dhis2_db  \
+        || { echo "failed to setup postgresql properly, will exit now " && return; }
+    fi
+    start_postgres
+    echo 'postgress already started, notifying dhis2 container'
+    echo 'dhis2_database_set' | nc -q 1 ${proj}-dhis 12345 
+    tail -f /var/log/postgresql/postgresql-$pg_version-main.log
 }
-
-
-setup_postgresql \
-&& setup_dhis2_db \
-&& start
+    
+start || echo error postgress should not exit at this point;

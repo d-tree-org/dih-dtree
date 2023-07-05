@@ -4,7 +4,7 @@ services:
     image: dhis-base
     build:
         context: .
-        dockerfile: compose/dih.dockerfile
+        dockerfile: compose/dockerfile
     container_name: ${proj}-dhis-db
     env_file:
       - ${env_file}  
@@ -13,14 +13,14 @@ services:
       - ${proj}-db:/var/run/postgresql
       - ${proj}-common:/${proj}/common/
       - ${dhis2_data}:/data/.backup/:ro
-    entrypoint: start server postgres
+    entrypoint: bash postgresql.sh
     networks:
       - dih-network
 
   ${proj}-dhis-web:
     image: dhis-base
     container_name: ${proj}-dhis-web
-    entrypoint: start server nginx
+    entrypoint: bash nginx.sh
     depends_on: 
       - ${proj}-dhis
     ports:
@@ -31,13 +31,13 @@ services:
     networks:
       - dih-network
     volumes:
-      - dih-common:/etc/letsencrypt
+      - dih-common:/dih/common/certs/
       - ${proj}-common:/${proj}/common/
 
   ${proj}-dhis:
     image: dhis-base
     container_name: ${proj}-dhis
-    entrypoint: start server dhis2
+    entrypoint: bash dhis.sh
     depends_on:
         - ${proj}-dhis-db
     env_file:
