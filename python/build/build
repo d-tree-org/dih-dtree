@@ -1,0 +1,11 @@
+#!/bin/bash
+script=$1 
+usr=$2
+docker container stop bold_babbage
+docker container rm bold_babbage
+docker build -f build.dockerfile -t builder .
+docker run \
+    -v ./$script:/run.sh -v "./built/:/built" \
+    --name bold_babbage \
+    -it builder bash /run.sh $usr 3.11.3 \
+&& sudo  chown -R $USER:$USER ./built

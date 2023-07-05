@@ -1,0 +1,26 @@
+version: '3.7'
+services:
+  dih-services:
+    image: dih-base-cronies
+    container_name: dih-cronies
+    build:
+        context: .
+        dockerfile: Dockerfile
+    env_file:
+      - .env
+    volumes: 
+      - dih-common:/dih/common/
+    entrypoint: start launch
+    networks:
+      - dih-network
+
+networks:
+  dih-network:
+    name: dih-network
+    external: true
+
+
+volumes:
+  dih-common:
+    name: dih-common
+    external: true

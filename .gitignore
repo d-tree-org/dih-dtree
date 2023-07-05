@@ -1,4 +1,6 @@
 **futa**
+**.ipynb
+**.xlsx
 **pycache**
 **.war
 **env
@@ -14,3 +16,8 @@
 **vscode*
 **.swp
 **build
+**.yml
+**cronies/dhis/**
+.bin/python
+**.egg-info
+**dist

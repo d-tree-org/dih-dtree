@@ -1,0 +1,20 @@
+version: '3.7'
+services:
+  build_python:
+    image: dih_build
+    container_name: dih_python_builder
+    build:
+        context: .
+        dockerfile: ./build.dockerfile
+    environment:
+      - "usr=${dih_user:-dih}"
+      - "version=3.11.3"
+    volumes: 
+      - ./built:/built
+    entrypoint: build_python
+#    networks:
+#      - dih_network
+
+#networks:
+#  dih_network:
+#    external: true

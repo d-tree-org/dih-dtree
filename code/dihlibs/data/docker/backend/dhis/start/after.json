@@ -1,0 +1,108 @@
+{
+  "href": "http://localhost/api/users/M5zQapPyTZI",
+  "code": "admin",
+  "name": "admin admin",
+  "created": "2024-02-17T16:49:37.140",
+  "lastUpdated": "2024-02-18T09:50:57.877",
+  "translations": [],
+  "externalAccess": false,
+  "createdBy": {
+    "id": "M5zQapPyTZI",
+    "code": "admin",
+    "name": "admin admin",
+    "displayName": "admin admin",
+    "username": "admin"
+  },
+  "userGroupAccesses": [],
+  "userAccesses": [],
+  "access": {
+    "manage": true,
+    "externalize": true,
+    "write": true,
+    "read": true,
+    "update": true,
+    "delete": true
+  },
+  "favorites": [],
+  "sharing": {
+    "external": false,
+    "users": {},
+    "userGroups": {}
+  },
+  "username": "admin",
+  "externalAuth": false,
+  "passwordLastUpdated": "2024-02-17T16:49:41.227",
+  "cogsDimensionConstraints": [],
+  "catDimensionConstraints": [],
+  "lastLogin": "2024-02-18T09:50:57.877",
+  "selfRegistered": false,
+  "invitation": false,
+  "disabled": false,
+  "surname": "admin",
+  "firstName": "admin",
+  "organisationUnits": [
+    {
+      "id": "UNSNiNqkzEM"
+    }
+  ],
+  "dataViewOrganisationUnits": [
+    {
+      "id": "UNSNiNqkzEM"
+    }
+  ],
+  "teiSearchOrganisationUnits": [
+    {
+      "id": "UNSNiNqkzEM"
+    }
+  ],
+  "twoFactorEnabled": false,
+  "userCredentials": {
+    "id": "M5zQapPyTZI",
+    "username": "admin",
+    "externalAuth": false,
+    "twoFA": false,
+    "passwordLastUpdated": "2024-02-17T16:49:41.227",
+    "cogsDimensionConstraints": [],
+    "catDimensionConstraints": [],
+    "previousPasswords": [],
+    "lastLogin": "2024-02-18T09:50:57.877",
+    "selfRegistered": false,
+    "invitation": false,
+    "disabled": false,
+    "access": {
+      "manage": true,
+      "externalize": true,
+      "write": true,
+      "read": true,
+      "update": true,
+      "delete": true
+    },
+    "sharing": {
+      "external": false,
+      "users": {},
+      "userGroups": {}
+    },
+    "userRoles": [
+      {
+        "id": "yrB6vc5Ip3r"
+      }
+    ]
+  },
+  "displayName": "admin admin",
+  "favorite": false,
+  "user": {
+    "id": "M5zQapPyTZI",
+    "code": "admin",
+    "name": "admin admin",
+    "displayName": "admin admin",
+    "username": "admin"
+  },
+  "id": "M5zQapPyTZI",
+  "attributeValues": [],
+  "userRoles": [
+    {
+      "id": "yrB6vc5Ip3r"
+    }
+  ],
+  "userGroups": []
+}
