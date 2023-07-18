@@ -1,4 +1,4 @@
-FROM debian
+FROM debian:bullseye
 
 RUN apt-get update && apt-get -y install apt-utils wget vim curl xz-utils cron procps 
 RUN groupadd dih
