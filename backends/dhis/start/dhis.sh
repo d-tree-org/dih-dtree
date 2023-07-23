@@ -1,6 +1,8 @@
 #!/bin/bash
 
 source common.sh
+
+
 function setup_tomcat(){
 
     [ -d /opt/tomcat ] && return;
@@ -9,12 +11,14 @@ function setup_tomcat(){
 
     echo 'setting up tomcat'
     mkdir -p /opt/tomcat/ && cd /opt/tomcat
-    wget -O apache-tomcat.tar.gz --progress=dot:giga ${tomcat_url}
-    tar xvfz apache*.tar.gz && mv apache-tomcat*/* /opt/tomcat/.
+    url="https://dlcdn.apache.org/tomcat/tomcat-${tomcat_version:-9}"
+    version=$(curl "$url/" -L 2>/dev/null | grep -Po '>v\K[^></]+' | sort | tail -1)
+    wget -O apache-tomcat.tar.gz --progress=dot:giga "$url/v$version/bin/apache-tomcat-$version.tar.gz"
+    tar xfz apache*.tar.gz && mv apache-tomcat*/* /opt/tomcat/.
 
     rm -rf apache* /opt/tomcat/webapps/* 
 
-    cat<<EOF | trim >>/opt/tomcat/bin/setenv.sh \
+    trim <<- EOF >>/opt/tomcat/bin/setenv.sh \
     && chmod +x /opt/tomcat/bin/setenv.sh
         #!/bin/bash
         export JAVA_OPTS="$JAVA_OPTS -Xms1500m -Xmx2000m -Dfile.encoding=UTF8" #this is for a limited instance

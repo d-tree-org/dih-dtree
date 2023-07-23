@@ -11,7 +11,7 @@ function setup_python(){
     quiet python --version && return;
     echo setting up python
     here=$(pwd) && cd /dih/lib
-    quiet tar -xvf python*xz 
+    quiet tar -xf python*xz 
     ln -s /dih/lib/python/bin/pip3 /dih/bin/pip \
        && ln -s /dih/lib/python/bin/python3 /dih/bin/python
     echo setting up python $(pwd)

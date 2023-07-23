@@ -43,16 +43,17 @@ function import_database(){
     backup_file=/data/.backup/db.sql.xz;
     echo "looking for backup file: $backup_file";
     [ ! -f $backup_file ] && echo 'backup file not found now proceeding..' && return;
-    
-    xz -d $backup_file && echo 'file found now executing the queries';
-    runuser -u postgres -- psql dhis2 < /data/.backup/db.sql \
+
+    mkdir /data/backup && cp $backup_file /data/backup && cd /data/backup
+    xz -d db.sql.xz  && echo 'file found now executing the queries';
+    runuser -u postgres -- psql dhis2 < /data/backup/db.sql \
     && update_admin_password 
 }
 
 
 function setup_dhis2_db(){
     cd /var/lib/postgresql/
-    runuser -u postgres -- psql << SQL  && import_database 
+    runuser -u postgres -- psql <<- SQL  && import_database 
         create user dhis with password '$dhis_password';
         create database dhis2;
         grant all on database dhis2 to dhis;

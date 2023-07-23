@@ -13,11 +13,12 @@ import requests
 log = None
 
 
-def _download_matview_data(postgres_url: str, month: str, e_map: pd.DataFrame):
+def _download_matview_data(conf: object, month: str, e_map: pd.DataFrame):
     log.info("Now starting to download data from sql view...")
-    with fn.run_cmd("ssh -4 -T medic-db") as shell:
+    cmd=conf.tunnel_ssh if conf.tunnel_ssh else "echo running sql without opening ssh-tunnel"
+    with fn.run_cmd(cmd) as shell:
         log.info(shell.results)
-        with sqlalchemy.create_engine(postgres_url).connect() as con:
+        with sqlalchemy.create_engine(conf.postgres_url).connect() as con:
             for db_view in e_map.db_view.unique():
                 log.info(f"    .....downloading: {db_view}")
                 data = pd.read_sql(sqlalchemy.text(query.get_sql(db_view, month)), con)
@@ -102,7 +103,7 @@ def main(
         log.info(f"initiating connection dhis ... ")
         dhis = dh.DHIS(conf.dhis_url)
         e_map = _get_the_mapping_file(conf,only_new_elements)
-        _download_matview_data(conf.postgres_url, month, e_map)
+        _download_matview_data(conf, month, e_map)
         data = _process_downloaded_data(dhis, month, e_map)
         res = _upload(dhis, data)
         log.info("Starting to refresh analytics ...")

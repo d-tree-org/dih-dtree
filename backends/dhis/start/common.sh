@@ -11,6 +11,8 @@ function setup_user(){
     #set links and references for containers to have the proper prefix based on project
      grep -rEl '\$\{proj\}' /dih | xargs  sed -ri "s/\\$\{proj\}/${proj}/g"
      grep -rEl '\$\{domain\}' /dih | xargs  sed -ri "s/\\$\{domain\}/${domain}/g"
+     grep -rEl '\$\{http_port\}' /dih | xargs  sed -ri "s/\\$\{http_port\}/${http_port}/g"
+     grep -rEl '\$\{https_port\}' /dih | xargs  sed -ri "s/\\$\{http_port\}/${https_port}/g"
    fi
 }
 
