@@ -1,8 +1,6 @@
 import logging
 
 logging.basicConfig(level=logging.INFO)
-log = logging.getLogger()
-log.handlers = []
 message_logger = None
 task_logger = None
 
@@ -10,12 +8,22 @@ def get_logger_message_only(logfile="../../logs/cron.log"):
     global message_logger
     if message_logger is None:
         message_logger = logging.getLogger("progress")
-        handler = logging.FileHandler(filename=logfile, delay=True)
-        handler.terminator = ""
-        handler.setLevel(logging.INFO)
+        message_logger.handlers = []
+        message_logger.propagate = False
+
         formatter = logging.Formatter("%(message)s")
+
+        # handler = logging.FileHandler(filename=logfile, delay=True)
+        # handler.terminator = ""
+        # handler.setLevel(logging.INFO)
+        # message_logger.addHandler(handler)
+        # handler.setFormatter(formatter)
+
+        handler = logging.StreamHandler()
+        handler.terminator = ""
         handler.setFormatter(formatter)
         message_logger.addHandler(handler)
+
     return message_logger
 
 
@@ -27,8 +35,15 @@ def get_logger_task(cron_name,logfile="../../logs/cron.log"):
     )
     if task_logger is None:
         task_logger = logging.getLogger("task")
-        handler = logging.FileHandler(filename=logfile)
-        handler.setLevel(logging.INFO)
+        task_logger.handlers = []
+        task_logger.propagate = False
+
+        # handler = logging.FileHandler(filename=logfile)
+        # handler.setLevel(logging.INFO)
+        # handler.setFormatter(formatter)
+        # task_logger.addHandler(handler)
+
+        handler = logging.StreamHandler()
+        handler.setFormatter(formatter)
         task_logger.addHandler(handler)
-    task_logger.handlers[0].setFormatter(formatter)
     return task_logger

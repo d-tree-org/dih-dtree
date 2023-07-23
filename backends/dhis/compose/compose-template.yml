@@ -24,8 +24,8 @@ services:
     depends_on: 
       - ${proj}-dhis
     ports:
-      - '80:80'
-      - '443:443'
+      - '${http_port}:80'
+      - '${https_port}:443'
     env_file:
       - ${env_file}  
     networks:

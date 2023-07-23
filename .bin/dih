@@ -1,30 +1,86 @@
 #!/bin/bash
 
+project_home="$(dirname $(cd $(dirname "$0") && pwd))"
+backends_path="$project_home"/backends
+cronies_path="$project_home"/cronies
+
+trim() { sed -r 's/^\s*//g;s/\s*$//g'; }
+quiet() { "$@" &>/dev/null; }
+unindent(){ sed -r 's/^\s{4}//';}
+
 function clear(){
     docker container ls -aq | xargs docker stop 2>/dev/null| xargs docker rm 2>/dev/null
     for it in {volume,network}; do 
         docker $it ls  -q | xargs docker $it rm 2>/dev/null ; done
 }
 
+function which_python(){
+    quiet command -v python3 && echo python3 && return 0;
+    quiet command -v python && echo python && return 0;
+    [ -d "$project_home/.bin/python/bin/" ] ||
+      tar -xJf "$project_home/cronies/libs/python-3.11.3.tar.xz" --directory  "$project_home/.bin"
+    echo   "$project_home/.bin/python/bin/python3"
+}
+
+function copy_configs_files(){
+    file="$1"
+    [ ! -f $file ] && return 23;
+
+    docker run -d --rm --name dih_temp -v dih-common:/dih/common busybox tail -f /dev/null
+    docker exec dih_temp mkdir -p /dih/common/{certs/ssh,configs}
+
+    proj=$(basename "$file"| grep -Po '^[^.]+')
+    docker cp "$file"  "dih_temp:/dih/common/configs/${proj}.json"
+
+    ssh_file=$("$(which_python)" -c "import json; print(json.load(open('${file}'))['cronies']['ssh_key_file'])")
+    if [ -f $ssh_file ]; then 
+        docker cp "$ssh_file"  dih_temp:/dih/common/certs/ssh/id_rsa
+        docker exec dih_temp chmod 600 /dih/common/certs/ssh/id_rsa
+    else echo "$ssh_file is not a valid file"
+    fi
+    docker stop dih_temp
+}
+
 function generate_compose_file(){
+    file="$1"
+    cron_env="$project_home/cronies/.env"
+    base="$project_home/backends/dhis"
+    proj=$(basename "$file"| grep -Po '^[^.]+')
+    env_file="$base/compose/$proj.env"
+    compose="$base/$proj-compose.yml"
+    cp $base/compose/compose-template.yml $compose
+
+    unindent <<- CODE | "$(which_python)"
+    import json
+    with open('$file') as file, open('$env_file','w') as back_env, open('$cron_env','w') as cron_env:
+        obj=json.load(file)
+        conf=obj['backends']['dhis']
+        for key, value in conf.items():
+            back_env.write(f'{key.strip()}={value.strip()}\n')
+        back_env.write('proj=$proj\n')
+        back_env.write('env_file=$env_file\n')
+        back_env.write(f'dih_user={obj["dih_user"]}\n')
+        cron_env.write('proj=$proj\n')
+        cron_env.write(f'dih_user={obj["dih_user"]}\n')
+
+    with open('$compose','r+') as compose_file:
+        comp=compose_file.read()
+        compose_file.seek(0)
+        for key, value in conf.items():
+            comp=comp.replace(f'\${{{key}}}',value)
+        comp=comp.replace('\${proj}','$proj')
+        comp=comp.replace('\${env_file}','$env_file')
+        compose_file.write(comp)
+CODE
+    sed -ri '/^\W*\$\{\w+\}\W*:\W*\/data.*/d' $compose   #remove empty data backups volumes
+}
+
+function generate_compose_file_py(){
     env_file=$1
     proj=$(basename "$env_file"| grep -Po '^[^.]+')
     base=$(dirname "$env_file")
     compose_file="$(dirname $base)/$proj-compose.yml"
     cp $base/compose-template.yml $compose_file 
-
-    echo -e "\n proj=$proj \n env_file=$env_file" >> $env_file
-    sed -ri 's/(^\W*|\s*$)//g' $env_file 
-    while IFS='=' read k v; do [ -z $k ] && continue;
-        key='\$\{?'"$k"'\}?'
-        value=$(echo $v | sed -r 's/[&/\\]/\\&/g')
-        sed -ri "s/$key/$value/g" $compose_file
-    done < $env_file
-    sed -ri '/^\W*\$\{\w+\}\W*:\W*\/data.*/d' $compose_file        #remove empty data backups volumes
-    sed -ri 's/^\W*((metadata|dhis2_data)\W*=)/#\1/g' $env_file    #comment out mounts options from env file
-    sed -ri "/(^\W*(proj|env_file)\W*=.*|^\s*$)/d" $env_file       #set proj environment variable
-    echo "proj=$proj" >> $env_file
-    # docker-compose -f $compose_file up -d
 
 }
 
@@ -33,13 +89,17 @@ function create_shared_docker_resources(){
     docker volume create  dih-common 2>/dev/null
 }
 
+
 case $1 in
     clear) clear ;;
     common) create_shared_docker_resources ;;
-    *.env)  create_shared_docker_resources && generate_compose_file $1 ;;
+    *.json)  create_shared_docker_resources && generate_compose_file $1 && copy_configs_files $1 ;;
     *.yml) create_shared_docker_resources; docker-compose -f $1 up -d ;; 
     logs) docker-compose -f $2 logs -f & ;; 
-    run) docker exec -u $2 dih-cronies run $3 $4;;
+    run) docker exec -u \
+        $(grep -Po 'dih_user=\K\w+' "$project_home/cronies/.env") \
+        -it dih-cronies bash -c "(cd dhis/\$2 && ./run \${@:3})" bash ${@} ;;
+
     down) docker-compose -f $2 down ;;
     stop)  docker ps  | grep "$2" | awk '{print $1}' | xargs docker stop ;; 
     rm)  docker container ls -a  | grep "$2" | awk '{print $1}' | xargs docker stop |xargs docker rm;; 

@@ -1,6 +1,7 @@
 FROM debian:bullseye
 
-RUN apt-get update && apt-get -y install apt-utils wget vim curl xz-utils cron procps 
+RUN apt-get update && apt-get -y install apt-utils wget vim curl xz-utils cron procps libterm-readline-gnu-perl
+RUN ln -sf /usr/share/zoneinfo/Africa/Nairobi /etc/localtime
 RUN groupadd dih
 
 WORKDIR /dih

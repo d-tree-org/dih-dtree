@@ -1,10 +1,11 @@
-import json, collections, logging
+import json, collections, re
 from concurrent.futures import ThreadPoolExecutor
 import concurrent.futures
 from typing import Callable, Any
 from subprocess import Popen, PIPE
 from datetime import datetime
 from dateutil.relativedelta import relativedelta
+from datetime import datetime
 
 class _Command:
     def __init__(self, cmd, bg=True):
@@ -54,10 +55,14 @@ def do_chunks(
             consumer_func(i, r)
 
 
-def get_config(config_file="/etc/cronies/config/config.json"):
+def get_config(config_file="/dih/common/configs/${proj}.json"):
     with open(config_file) as file:
         x = json.load(file)
-    return collections.namedtuple("p", x.keys())(*x.values())
+        c = x['cronies']
+        for k,v in x.items():
+            if isinstance(v, (str, int, float)):
+                c[k] = x[k]
+    return collections.namedtuple("p", c.keys())(*c.values())
 
 
 def get_month(delta):
@@ -83,3 +88,13 @@ def log_response(rs, dot=None):
         print(rs.text)
     return rs.json().get("status")
 
+
+def parse_month(date:str):
+    formats = ['%Y%m', '%Y%m%d', '%d%m%Y','%m%Y']
+    for fmt in formats:
+        try:
+            dt = datetime.strptime(re.sub(r'\W+', '', date), fmt)
+            return dt.replace(day=1).strftime('%Y-%m-%d')
+        except ValueError:
+            pass
+    raise ValueError("Invalid date format")

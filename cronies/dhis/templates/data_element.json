@@ -1,7 +1,7 @@
 [{
-  "id": "{change}",
-  "name": "{change}",
-  "shortName": "{change}",
+  "id": "{id}",
+  "name": "{name}",
+  "shortName": "{short_name}",
   "aggregationType": "SUM",
   "domainType": "AGGREGATE",
   "publicAccess": "rw------",
