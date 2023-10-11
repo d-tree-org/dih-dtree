@@ -4,32 +4,51 @@ import cron_logger as logger
 
 
 class DHIS:
-    def __init__(self, base_url: str):
-        self.base_url = base_url
+    def __init__(self, conf: str,mapping_file):
+        self.__conf=conf
+        self._mapping_file=mapping_file
+        self.base_url = conf.dhis_url
         self.orgs = self._get_org_units()
         self.combos = self._get_category_combos()
         self._log = logger.get_logger_message_only()
 
     def _normalize_combo(self, input):
-        c = input.lower()
+        c = input.lower().strip()
         c = re.sub(r"(default(.+)|(.+)default)", r"\2\3", c)
-        c = re.sub(r"(\d+)\D+(\d+)?\s*(year|mon|week|day)\w+", r"\1-\2\3", c)
+        c = re.sub(r"(\d+)\D+(\d+)?\s*(yrs|year|mon|week|day)\w+", r"\1-\2\3", c)
         c = re.sub(r"(\d+)\D*(trimester).*", r"\1_\2", c)
         return ",".join(sorted([x.strip() for x in c.split(",") if x]))
 
     def _get_category_combos(self):
-        url = f"{self.base_url}/api/categoryOptionCombos?paging=false&fields=id~rename(categoryOptionCombo),displayName~rename(combo)"
-        cmb = pd.json_normalize(rq.get(url).json()["categoryOptionCombos"])
-        cmb["disaggregation_value"] = cmb.combo.apply(self._normalize_combo)
-        return cmb.drop(columns="combo")
+        if 'category_option_combos' in self._mapping_file.sheet_names:
+            cmb= pd.read_excel(self._mapping_file,'category_option_combos').dropna();
+        else:
+            url = f"{self.base_url}/api/categoryOptionCombos?paging=false&fields=id~rename(categoryOptionCombo),displayName~rename(disaggregationValue)"
+            cmb = pd.json_normalize(rq.get(url).json()["categoryOptionCombos"])
+        cmb["disaggregation_value"] = cmb.disaggregationValue.apply(self._normalize_combo)
+        return cmb
+        
+    def __prep_key(self,value):
+        if isinstance(value, list):
+            return {self.__prep_key(x) for x in value}
+        elif isinstance(value, pd.Series):
+            return {self.__prep_key(x) for x in value.values}
+        elif isinstance(value, str):
+            return re.sub(r'\W+', '', value)
+        else:
+            return value
 
     def _get_org_units(self):
-        url = f"{self.base_url}/api/organisationUnits?filter=level:in:[5,8,7]&fields=id~rename(orgUnit),name~rename(lookup),level,ancestors[name]&paging=false"
+        def set_location(row):
+            return self.__prep_key([x['name'] for x in row.ancestors]) | {self.__prep_key(row.orgName)}
+
+        levels=json.dumps(list(self.__conf.location_levels.values())).replace(' ','')
+        root=rq.get(f"{self.base_url}/api/organisationUnits?fields=id,name,level&filter=name:eq:{self.__conf.country}").json()['organisationUnits'][0]
+        url = f"{self.base_url}/api/organisationUnits?filter=path:like:{root['id']}&filter=level:in:{levels}&fields=id~rename(orgUnit),name~rename(orgName),level,ancestors[name]&paging=false"
         orgs = pd.json_normalize(rq.get(url).json()["organisationUnits"])
-        orgs.loc[orgs.level == 8, "lookup"] = orgs[orgs.level == 8].apply(
-            lambda x: x.ancestors[4]["name"] + "." + x.lookup, axis=1
-        )
-        return orgs.drop(columns=["ancestors", "level"])
+        orgs['name_key'] = orgs.orgName.apply(self.__prep_key)
+        orgs['location']=orgs.apply(set_location,axis=1)
+        return orgs
 
     def add_category_combos_id(self, data: pd.DataFrame):
         if "disaggregation_value" not in data.columns.values:
@@ -40,13 +59,15 @@ class DHIS:
         return data.merge(self.combos, how="left", on="disaggregation_value")
 
     def add_org_unit_id(self, data: pd.DataFrame):
-        if "shehia" in data.columns:
-            data["lookup"] = data.district + "." + data.shehia
-        elif "supervisory_area_uuid" in data.columns:
-            data["lookup"] = data.supervisory_area_uuid
-        else:
-            data["lookup"] = data.district
-        return data.merge(self.orgs, how="left", on="lookup")
+        def find_matching(x):
+            s=self.orgs[self.orgs.name_key.isin(x)]
+            matches=s[s.location.apply(lambda y:x.issubset(y))]
+            return matches.orgUnit.values[0] if matches.size>0 else pd.NA
+
+        loc = [ x for x in data.columns if x in self.__conf.location_levels.keys()]
+        data['location']= data[loc].apply(self.__prep_key,axis=1)
+        data['orgUnit']=data.location.map(find_matching)
+        return data
 
     def to_data_values(self, data: pd.DataFrame, e_map: pd.DataFrame):
         id_vars = ["orgUnit", "categoryOptionCombo", "period"]
@@ -62,15 +83,17 @@ class DHIS:
         output["dataSet"] = output.db_column.replace(e_map["dataset_id"])
         output["dataElement"] = output.db_column.replace(e_map["element_id"])
         output["value"] = output.value.astype(int)
+        output=output.drop_duplicates()
+        output.to_csv('dump/output.csv')
         return output
 
     def upload_orgs(self, dataset_id, org_names: list, data):
         results = []
         url = f"{self.base_url}/api/dataValueSets?dataSet={dataset_id}"
-
         for org_name in org_names:
             org = data[data.orgUnit == org_name].copy()
             org.dropna(subset=["value"], inplace=True)
+            org.dropna(subset=["categoryOptionCombo"], inplace=True)
             payload = {
                 "orgUnit": org["orgUnit"].iloc[0],
                 "period": org["period"].iloc[0],
@@ -78,7 +101,7 @@ class DHIS:
                 "completeData": True,
                 "overwrite": True,
                 "dataValues": org[
-                    ["dataElement", "categoryOptionCombo", "value",]
+                    ["dataElement", "categoryOptionCombo", "value"]
                 ].to_dict(orient="records"),
             }
             res=_log_response(rq.post(url, json=payload))

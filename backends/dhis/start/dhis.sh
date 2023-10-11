@@ -29,7 +29,7 @@ EOF
 base='/dih'
 function setup_dhis2(){
 
-    quiet id dhis && [ -f /home/dhis/config/dhis.conf] && return; 
+    quiet id dhis && [ -f /home/dhis/config/dhis.conf ] && return; 
 
     echo 'setting up dhis2'
     useradd -d /home/dhis -m dhis -s /bin/false

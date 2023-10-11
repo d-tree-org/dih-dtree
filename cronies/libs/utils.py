@@ -57,7 +57,11 @@ def do_chunks(
 def get_config(config_file="/etc/cronies/config/config.json"):
     with open(config_file) as file:
         x = json.load(file)
-    return collections.namedtuple("p", x.keys())(*x.values())
+        c = x['cronies']
+        for k,v in x.items():
+            if isinstance(v, (str, int, float)):
+                c[k] = x[k]
+    return collections.namedtuple("p", c.keys())(*c.values())
 
 
 def get_month(delta):

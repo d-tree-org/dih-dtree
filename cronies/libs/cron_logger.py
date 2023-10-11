@@ -2,7 +2,7 @@ import logging
 
 logging.basicConfig(level=logging.INFO)
 log = logging.getLogger()
-log.handlers = []
+# log.handlers = []
 message_logger = None
 task_logger = None
 
@@ -29,6 +29,7 @@ def get_logger_task(cron_name,logfile="../../logs/cron.log"):
         task_logger = logging.getLogger("task")
         handler = logging.FileHandler(filename=logfile)
         handler.setLevel(logging.INFO)
+        handler.setFormatter(formatter)
         task_logger.addHandler(handler)
-    task_logger.handlers[0].setFormatter(formatter)
+    # task_logger.handlers[0].setFormatter(formatter)
     return task_logger

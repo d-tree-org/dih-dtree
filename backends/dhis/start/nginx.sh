@@ -22,7 +22,7 @@ function setup_nginx(){
     
     openssl dhparam --dsaparam -out /etc/ssl/certs/dhparams.pem 2048 
     mv /dih/start/letsencrypt.sh /dih/bin/renew && chmod +x /dih/bin/renew
-    cron && runuser -u $dih_user -- renew 
+    cron && runuser -u $dih_user -- renew  && setup_ssl
 }
 
 

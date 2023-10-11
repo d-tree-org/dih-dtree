@@ -12,7 +12,7 @@ class DHIS_Meta:
 
     def __init__(self,conf:object) -> None:
         self._base_url=conf.dhis_url
-        element_map = gd.Drive(conf.drive_key).get_df(conf.e_map_google,'data_elements')
+        element_map = gd.Drive(conf.drive_key).get_df(conf.data_element_mapping,'data_elements')
         self._map=element_map.rename(columns={"element_id":"id","short_name":"shortName"})
         self._map['description']=''
 
@@ -20,7 +20,8 @@ class DHIS_Meta:
     def push_new_elements(self):
         template=pd.read_json('templates/data_element.json',orient='records')
         template=template[[x for x in template.columns if x not in self._map.columns]]
-        new=self._map[self._map.is_new=='new'][['name','shortName','description','id']]
+        new=self._map[self._map.is_new=='new'][['name','shortName','description','id']].dropna(subset=['name','shortName'])
+
         new=new.merge(template,how='cross').fillna('').to_dict(orient='records')
         return rq.post(f'{self._base_url}/api/metadata',json={"dataElements":new}).json()
 
