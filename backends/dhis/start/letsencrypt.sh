@@ -61,7 +61,6 @@ function renew(){
             --config-dir $certs_dir/config \
             --work-dir $certs_dir/work \
             --logs-dir $certs_dir/logs \
-            --test-cert \
             -d ${domain_name} \
         && notify_nginx "reload";
     }
