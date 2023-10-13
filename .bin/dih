@@ -89,6 +89,7 @@ function create_shared_docker_resources(){
     docker volume create  dih-common 2>/dev/null
 }
 
+
 case $1 in
     clear) clear ;;
     common) create_shared_docker_resources ;;
@@ -97,7 +98,8 @@ case $1 in
     logs) docker-compose -f $2 logs -f & ;; 
     run) docker exec -u \
         $(grep -Po 'dih_user=\K\w+' "$project_home/cronies/.env") \
-        -it dih-cronies bash -c "(cd dhis/$2 && ./run ${@:2})";;
+        -it dih-cronies bash -c "(cd dhis/\$2 && ./run \${@:3})" bash ${@} ;;
+
     down) docker-compose -f $2 down ;;
     stop)  docker ps  | grep "$2" | awk '{print $1}' | xargs docker stop ;; 
     rm)  docker container ls -a  | grep "$2" | awk '{print $1}' | xargs docker stop |xargs docker rm;; 
