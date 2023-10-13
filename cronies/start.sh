@@ -10,7 +10,8 @@ function create_run_command() {
         $(printenv | sed -r '/[A-Z]+=/d;s/^./export \0/')
         cd /dih/cronies/\${1//./\//}
         echo running \$1 >> /dih/cronies/logs/cron.log  2>&1
-        ./run \$2 >> /dih/cronies/logs/cron.log  2>&1
+        ./run "\${@:2}" >> /dih/cronies/logs/cron.log  2>&1
+
 RUN_FILE
         chmod +x /dih/bin/run && chown :dih /dih/bin/run
     echo user set
