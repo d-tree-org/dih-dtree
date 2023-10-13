@@ -2,7 +2,6 @@ import pandas as pd,numpy as np, re, requests as rq, threading,json,sys
 sys.path.append("../../libs")
 import cron_logger as logger
 
-
 class DHIS:
     def __init__(self, conf,mapping_file):
         self.__conf=conf
@@ -28,11 +27,23 @@ class DHIS:
     def _get_category_combos(self):
         if 'category_option_combos' in self._mapping_file.sheet_names:
             cmb= pd.read_excel(self._mapping_file,'category_option_combos').dropna();
+            cmb['disaggregationValue']
         else:
             url = f"{self.base_url}/api/categoryOptionCombos?paging=false&fields=id~rename(categoryOptionCombo),displayName~rename(disaggregationValue)"
             cmb = pd.json_normalize(rq.get(url).json()["categoryOptionCombos"])
         cmb["disaggregation_value"] = cmb.disaggregationValue.apply(self._normalize_combo)
         return cmb
+
+
+    def rename_db_values(self,df:pd.DataFrame):
+        if 'rename' not in self._mapping_file.sheet_names: return df
+        df=df.copy()
+        rename_sh=pd.read_excel(self._mapping_file,'rename')
+        for n in rename_sh.db_column.unique():
+            x=pd.merge(df,rename_sh,how='left',left_on=n,right_on='original_name')
+            df[n]=x.new_name.fillna(df[n])
+        return df
+
         
     def __prep_key(self,value):
         if isinstance(value, list):

@@ -44,6 +44,7 @@ def _process_downloaded_data(dhis: DHIS, month: str, e_map: pd.DataFrame):
     for file in files:
         df = pd.read_csv(f".data/views/{file}")
         df["period"] = pd.to_datetime(df.reported_month).dt.strftime("%Y%m")
+        df = dhis.rename_db_values(df)
         df = dhis.add_category_combos_id(df)
         df = dhis.add_org_unit_id(df)
         df = df.dropna(subset=["orgUnit"])
@@ -89,7 +90,7 @@ def notify_on_slack(conf:object,message:dict):
     log.info(f'slack text status,{res.status_code},{res.text}')
 
 
-def main(
+def start(
     config_file="/dih/common/configs/${proj}.json",
     month=fn.get_month(-1),
     task_name="",
@@ -106,6 +107,7 @@ def main(
         dhis = DHIS(conf,mapping_file)
         _download_matview_data(conf, month, e_map)
         data = _process_downloaded_data(dhis, month, e_map)
+        data.to_csv('uploaded.csv')
         res = _upload(dhis, data)
         msg=res.get_slack_post(month)
         notify_on_slack(conf,msg)
@@ -118,4 +120,4 @@ def main(
         notify_on_slack(conf,{'text':'ERROR: ' + str(e)})
 
 if __name__ == "__main__":
-    main()
+    start()
