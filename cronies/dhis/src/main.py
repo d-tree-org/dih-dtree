@@ -85,7 +85,7 @@ def notify_on_slack(conf:object,message:dict):
     if conf.notifications != 'on':
        log.error(f'for slack: {message}') 
        return;
-    res=requests.post(conf.slack_webhook_url,message)
+    res=requests.post(conf.slack_webhook_url,json=message)
     log.info(f'slack text status,{res.status_code},{res.text}')
 
 
