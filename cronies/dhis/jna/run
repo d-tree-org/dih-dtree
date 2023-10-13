@@ -18,7 +18,6 @@ if __name__ == "__main__":
     data=main(
         month=args_dict['month']+'-01' if args_dict.get('month') is not None else fn.get_month(-1),
         task_name="jna-dhis",
-        #config_file='/home/n2/.dih.configs/jna.json',
         only_new_elements=args.only_new
     )
     print(data)

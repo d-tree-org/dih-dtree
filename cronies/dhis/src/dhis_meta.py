@@ -17,7 +17,7 @@ class DHIS_Meta:
 
 
     def push_new_elements(self):
-        template=pd.read_json('templates/data_element.json',orient='records')
+        template=pd.read_json('../templates/data_element.json',orient='records')
         template=template[[x for x in template.columns if x not in self._map.columns]]
         new=self._map[self._map.is_new==True][['name','shortName','description','id']].dropna(subset=['name','shortName'])
 
