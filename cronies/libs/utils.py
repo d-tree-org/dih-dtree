@@ -54,7 +54,7 @@ def do_chunks(
             consumer_func(i, r)
 
 
-def get_config(config_file="/etc/cronies/config/config.json"):
+def get_config(config_file="/dih/common/configs/${proj}.json"):
     with open(config_file) as file:
         x = json.load(file)
         c = x['cronies']

@@ -2,13 +2,23 @@
 # apt-get install libbz2-dev ssh-client postgresql-client
 # pip install --upgrade pandas openpyxl SQLAlchemy psycopg2-binary google-api-python-client google-auth-httplib2 google-auth-oauthlib oauth2client
 # cron_time 0 03 4 * *
-import sys
+import sys,argparse
 sys.path+=["../libs",'../src']
 from main import main 
 import utils as fn
 
 
 if __name__ == "__main__":
-    x = sys.argv[1] if len(sys.argv) > 1 else fn.get_month(-1)
-    data = main(month=x,task_name='jna-dhis',config_file='/etc/cronies/config/jna.json')
+    parser = argparse.ArgumentParser(description='Script for pushing data from data warehouse to dhis2')
+    parser.add_argument('-m', '--month', type=str, help='Date in format YYYY-MM')
+    parser.add_argument('-n', '--only-new', action='store_true', help='Flag for new elements only')
+    args = parser.parse_args()
+    args_dict = vars(args)  # Convert args to dictionary
+
+    data=main(
+        month=args_dict['month']+'-01' if args_dict.get('month') is not None else fn.get_month(-1),
+        task_name="jna-dhis",
+        #config_file='/home/n2/.dih.configs/jna.json',
+        only_new_elements=args.only_new
+    )
     print(data)

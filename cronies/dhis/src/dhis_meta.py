@@ -3,10 +3,9 @@ import requests as rq
 import sys
 sys.path.append("../../libs")
 import drive as gd,re,json
-import logging as log
+import cron_logger as logger
 
-log.basicConfig(filename='../logs/cron.log', level=log.DEBUG)
-
+log=logger.get_logger_message_only()
 
 class DHIS_Meta:
 
@@ -20,9 +19,10 @@ class DHIS_Meta:
     def push_new_elements(self):
         template=pd.read_json('templates/data_element.json',orient='records')
         template=template[[x for x in template.columns if x not in self._map.columns]]
-        new=self._map[self._map.is_new=='new'][['name','shortName','description','id']].dropna(subset=['name','shortName'])
+        new=self._map[self._map.is_new==True][['name','shortName','description','id']].dropna(subset=['name','shortName'])
 
         new=new.merge(template,how='cross').fillna('').to_dict(orient='records')
+        print(new)
         return rq.post(f'{self._base_url}/api/metadata',json={"dataElements":new}).json()
 
 

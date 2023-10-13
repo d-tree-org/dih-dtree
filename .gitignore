@@ -18,3 +18,4 @@
 **build
 **.yml
 **cronies/dhis/**
+.bin/python

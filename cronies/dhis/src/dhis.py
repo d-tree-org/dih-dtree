@@ -1,15 +1,16 @@
-import pandas as pd, re, requests as rq, threading,json,sys
+import pandas as pd,numpy as np, re, requests as rq, threading,json,sys
 sys.path.append("../../libs")
 import cron_logger as logger
 
 
 class DHIS:
-    def __init__(self, conf: str,mapping_file):
+    def __init__(self, conf,mapping_file):
         self.__conf=conf
         self._mapping_file=mapping_file
         self.base_url = conf.dhis_url
         self.orgs = self._get_org_units()
         self.combos = self._get_category_combos()
+        self.datasets = self._get_datasets()
         self._log = logger.get_logger_message_only()
 
     def _normalize_combo(self, input):
@@ -18,6 +19,11 @@ class DHIS:
         c = re.sub(r"(\d+)\D+(\d+)?\s*(yrs|year|mon|week|day)\w+", r"\1-\2\3", c)
         c = re.sub(r"(\d+)\D*(trimester).*", r"\1_\2", c)
         return ",".join(sorted([x.strip() for x in c.split(",") if x]))
+
+    def _get_datasets(self):
+        dataset_ids=','.join(pd.read_excel(self._mapping_file,'data_elements').dataset_id.unique().tolist())
+        url=f'{self.base_url}/api/dataSets?fields=id,name&filter=id:in:[{dataset_ids}]&paging=false'
+        return pd.DataFrame(rq.get(url).json()['dataSets']);
 
     def _get_category_combos(self):
         if 'category_option_combos' in self._mapping_file.sheet_names:
@@ -84,12 +90,21 @@ class DHIS:
         output["dataElement"] = output.db_column.replace(e_map["element_id"])
         output["value"] = output.value.astype(int)
         output=output.drop_duplicates()
-        output.to_csv('dump/output.csv')
         return output
+
+    def __convert_int64(self,obj):
+        if isinstance(obj, dict):
+            return {key: self.__convert_int64(value) for key, value in obj.items()}
+        elif isinstance(obj, list):
+            return [self.__convert_int64(item) for item in obj]
+        elif isinstance(obj, np.int64):
+            return int(obj)
+        else:
+            return obj
 
     def upload_orgs(self, dataset_id, org_names: list, data):
         results = []
-        url = f"{self.base_url}/api/dataValueSets?dataSet={dataset_id}"
+        url = f"{self.base_url}/api/dataValueSets"
         for org_name in org_names:
             org = data[data.orgUnit == org_name].copy()
             org.dropna(subset=["value"], inplace=True)
@@ -113,38 +128,6 @@ class DHIS:
         self._log.info(f' Analytics: {resp.get("status")}, {resp.get("message")}')
         return resp.get("status")
 
-    class Results:
-        def __init__(self):
-            self.summary = {}
-
-        def add(self, ds_id, results):
-            ds = self.summary.setdefault(ds_id, {"success": 0, "error": 0})
-            ds["success"] += results.count("OK")
-            ds["error"] += len(results) - results.count("OK")
-
-        def get_slack_post(self, webhook_url, month: str, labels: pd.DataFrame):
-            lb = labels.drop_duplicates()
-            lb = lb.set_index("dataset_id")["dataset_name"].to_dict()
-            msg = [f"*JnA DHIS uploaded results for `{month}`*", "", ""]
-            for id_category, counts in self.summary.items():
-                msg.append(lb.get(id_category))
-                msg.append(f"\t\u2022\tSuccess: {counts['success']}")
-                msg.append(f"\t\u2022\tError: {counts['error']}")
-                msg.append("")  # Add an empty line after each ID category
-            return {"text": "\n".join(msg)}
-
-        def send_to_slack(self, webhook_url, month: str, labels: pd.DataFrame):
-            lb = labels.drop_duplicates()
-            lb = lb.set_index("dataset_id")["dataset_name"].to_dict()
-            msg = [f"*JnA DHIS uploaded results for `{month}`*", "", ""]
-            for id_category, counts in self.summary.items():
-                msg.append(lb.get(id_category))
-                msg.append(f"\t\u2022\tSuccess: {counts['success']}")
-                msg.append(f"\t\u2022\tError: {counts['error']}")
-                msg.append("")  # Add an empty line after each ID category
-            rs = rq.post(webhook_url, json={"text": "\n".join(msg)})
-            return _log_response(rs, dot=False)
-
 
 _log = logger.get_logger_message_only()
 log_lock = threading.Lock()
@@ -162,3 +145,25 @@ def _log_response(rs, dot=True):
         except json.decoder.JSONDecodeError:
             _log.error(rs.text)
 
+
+class UploadSummary:
+    def __init__(self,dhis:DHIS):
+        self.summary = {}
+        self._datasets=dhis.datasets
+
+    def add(self, ds_id, results):
+        ds = self.summary.setdefault(ds_id, {"success": 0, "error": 0})
+        ds["success"] += results.count("OK")
+        ds["error"] += len(results) - results.count("OK")
+
+    def get_slack_post(self,month: str):
+        ds=self._datasets
+        msg = [f"*JnA DHIS uploaded results for `{month}`*", "", ""]
+        for id_category, counts in self.summary.items():
+            msg.extend([
+                ds[ds.id==id_category].name.values[0],
+                f"\t\u2022\tSuccess: {counts['success']}",
+                f"\t\u2022\tError: {counts['error']}",
+                ""
+            ])
+        return {"text": "\n".join(msg)}

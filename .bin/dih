@@ -1,27 +1,56 @@
 #!/bin/bash
 
-backends_path=$(dirname $(cd $(dirname "$0") && pwd))/backends
-cronies_path=$(dirname $(cd $(dirname "$0") && pwd))/cronies
+project_home="$(dirname $(cd $(dirname "$0") && pwd))"
+backends_path="$project_home"/backends
+cronies_path="$project_home"/cronies
 
-function unindent(){
-    sed -r 's/^\s{4}//'
-}
+trim() { sed -r 's/^\s*//g;s/\s*$//g'; }
+quiet() { "$@" &>/dev/null; }
+unindent(){ sed -r 's/^\s{4}//';}
+
 function clear(){
     docker container ls -aq | xargs docker stop 2>/dev/null| xargs docker rm 2>/dev/null
     for it in {volume,network}; do 
         docker $it ls  -q | xargs docker $it rm 2>/dev/null ; done
 }
 
-generate_compose_file(){
+function which_python(){
+    quiet command -v python3 && echo python3 && return 0;
+    quiet command -v python && echo python && return 0;
+    [ -d "$project_home/.bin/python/bin/" ] ||
+      tar -xJf "$project_home/cronies/libs/python-3.11.3.tar.xz" --directory  "$project_home/.bin"
+    echo   "$project_home/.bin/python/bin/python3"
+}
+
+function copy_configs_files(){
     file="$1"
-    cron_env=$(dirname $(cd $(dirname "$0") && pwd))/cronies/.env
-    base=$(dirname $(cd $(dirname "$0") && pwd))/backends/dhis
+    [ ! -f $file ] && return 23;
+
+    docker run -d --rm --name dih_temp -v dih-common:/dih/common busybox tail -f /dev/null
+    docker exec dih_temp mkdir -p /dih/common/{certs/ssh,configs}
+
+    proj=$(basename "$file"| grep -Po '^[^.]+')
+    docker cp "$file"  "dih_temp:/dih/common/configs/${proj}.json"
+
+    ssh_file=$("$(which_python)" -c "import json; print(json.load(open('${file}'))['cronies']['ssh_key_file'])")
+    if [ -f $ssh_file ]; then 
+        docker cp "$ssh_file"  dih_temp:/dih/common/certs/ssh/id_rsa
+        docker exec dih_temp chmod 600 /dih/common/certs/ssh/id_rsa
+    else echo "$ssh_file is not a valid file"
+    fi
+    docker stop dih_temp
+}
+
+function generate_compose_file(){
+    file="$1"
+    cron_env="$project_home/cronies/.env"
+    base="$project_home/backends/dhis"
     proj=$(basename "$file"| grep -Po '^[^.]+')
     env_file="$base/compose/$proj.env"
     compose="$base/$proj-compose.yml"
     cp $base/compose/compose-template.yml $compose
 
-    unindent <<- CODE | python
+    unindent <<- CODE | "$(which_python)"
     import json
     with open('$file') as file, open('$env_file','w') as back_env, open('$cron_env','w') as cron_env:
         obj=json.load(file)
@@ -31,6 +60,7 @@ generate_compose_file(){
         back_env.write('proj=$proj\n')
         back_env.write('env_file=$env_file\n')
         back_env.write(f'dih_user={obj["dih_user"]}\n')
+        cron_env.write('proj=$proj\n')
         cron_env.write(f'dih_user={obj["dih_user"]}\n')
 
     with open('$compose','r+') as compose_file:
@@ -62,12 +92,12 @@ function create_shared_docker_resources(){
 case $1 in
     clear) clear ;;
     common) create_shared_docker_resources ;;
-    *.json)  create_shared_docker_resources && generate_compose_file $1 ;;
+    *.json)  create_shared_docker_resources && generate_compose_file $1 && copy_configs_files $1 ;;
     *.yml) create_shared_docker_resources; docker-compose -f $1 up -d ;; 
     logs) docker-compose -f $2 logs -f & ;; 
     run) docker exec -u \
-        $(grep -Po 'dih_user=\K\w+' $cronies_path/.env) \
-        -it dih-cronies run $2 $3;;
+        $(grep -Po 'dih_user=\K\w+' "$project_home/cronies/.env") \
+        -it dih-cronies bash -c "(cd dhis/$2 && ./run $3)";;
     down) docker-compose -f $2 down ;;
     stop)  docker ps  | grep "$2" | awk '{print $1}' | xargs docker stop ;; 
     rm)  docker container ls -a  | grep "$2" | awk '{print $1}' | xargs docker stop |xargs docker rm;; 

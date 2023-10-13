@@ -5,7 +5,7 @@ source common.sh
 conf='/dih/conf'
 certs_dir="/dih/common/certs/letsencrypt/config/live/${domain_name}"
 
-function setup_nginx() {
+setup_nginx() {
     quiet which nginx || apt-get -y install nginx --fix-missing
     quiet pgrep nginx || nginx -g 'daemon off;' &
     quiet pgrep cron || cron
@@ -18,7 +18,6 @@ function setup_nginx() {
     mv $conf/nginx.conf /etc/nginx/nginx.conf
     mv $conf/domain_name.conf /etc/nginx/sites-available/${domain_name}.conf
     rm -rf $conf
-    sed -ri "s/\\$\{domain_name\}/$domain_name/g" /etc/nginx/sites-available/*.conf
     ln -s /etc/nginx/sites-available/$domain_name.conf /etc/nginx/sites-enabled/$domain_name.conf
 
     #setup certificates
@@ -29,14 +28,14 @@ function setup_nginx() {
     runuser -u $dih_user -- renew && setup_ssl
 }
 
-function setup_ssl() {
+setup_ssl() {
     [ ! -f $certs_dir/fullchain.pem ] && return
     echo "reloading nginx server"
     sed -ri 's/##//g' /etc/nginx/sites-enabled/$domain_name.conf
     nginx -s reload && echo " nginx x server reloaded successfull"
 }
 
-function listen_for_reloading_signal() {
+listen_for_reloading_signal() {
     echo 'opening up to receive instructions from peers'
     while true; do
         while read -r line; do
@@ -48,7 +47,7 @@ function listen_for_reloading_signal() {
     done
 }
 
-function start() {
+start() {
     setup_nginx
     listen_for_reloading_signal &
     tail -f /dev/null

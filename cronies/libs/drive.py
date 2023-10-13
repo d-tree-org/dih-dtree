@@ -61,7 +61,7 @@ class Drive:
             while done is False:
                 _, done = downloader.next_chunk(num_retries=5)
             file.seek(0)
-            return file.getvalue()
+            return file
         except HttpError as error:
             print(f"An error occurred: {error}")
             file = None
