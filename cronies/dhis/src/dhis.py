@@ -40,8 +40,8 @@ class DHIS:
         df=df.copy()
         rename_sh=pd.read_excel(self._mapping_file,'rename')
         for n in rename_sh.db_column.unique():
-            x=pd.merge(df,rename_sh,how='left',left_on=n,right_on='original_name')
-            df[n]=x.new_name.fillna(df[n])
+            x=pd.merge(df,rename_sh,how='left',left_on=n,right_on='db_name')
+            df[n]=x.dhis_name.fillna(df[n])
         return df
 
         

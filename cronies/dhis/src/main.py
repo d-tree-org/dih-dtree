@@ -107,7 +107,6 @@ def start(
         dhis = DHIS(conf,mapping_file)
         _download_matview_data(conf, month, e_map)
         data = _process_downloaded_data(dhis, month, e_map)
-        data.to_csv('uploaded.csv')
         res = _upload(dhis, data)
         msg=res.get_slack_post(month)
         notify_on_slack(conf,msg)

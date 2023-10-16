@@ -22,8 +22,9 @@ class DHIS_Meta:
         new=self._map[self._map.is_new==True][['name','shortName','description','id']].dropna(subset=['name','shortName'])
 
         new=new.merge(template,how='cross').fillna('').to_dict(orient='records')
-        print(new)
-        return rq.post(f'{self._base_url}/api/metadata',json={"dataElements":new}).json()
+        res= rq.post(f'{self._base_url}/api/metadata',json={"dataElements":new})
+        print(res.text,res.status_code,res.raw)
+        return res.json()
 
 
     def add_category_combo(self):
