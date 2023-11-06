@@ -23,7 +23,6 @@ class DHIS_Meta:
 
         new=new.merge(template,how='cross').fillna('').to_dict(orient='records')
         res= rq.post(f'{self._base_url}/api/metadata',json={"dataElements":new})
-        print(res.text,res.status_code,res.raw)
         return res.json()
 
 

@@ -1,4 +1,4 @@
-import pandas as pd,numpy as np, re, requests as rq, threading,json,sys
+import pandas as pd,numpy as np, re, requests as rq, threading,json,sys,os
 sys.path.append("../../libs")
 import cron_logger as logger
 
@@ -20,6 +20,9 @@ class DHIS:
         return ",".join(sorted([x.strip() for x in c.split(",") if x]))
 
     def _get_datasets(self):
+        if os.path.exists('.data/dataSets.json'):
+            with open('.data/dataSets.json','r') as file:
+                return pd.DataFrame(json.load(file))
         dataset_ids=','.join(pd.read_excel(self._mapping_file,'data_elements').dataset_id.unique().tolist())
         url=f'{self.base_url}/api/dataSets?fields=id,name&filter=id:in:[{dataset_ids}]&paging=false'
         return pd.DataFrame(rq.get(url).json()['dataSets']);
@@ -59,10 +62,16 @@ class DHIS:
         def set_location(row):
             return self.__prep_key([x['name'] for x in row.ancestors]) | {self.__prep_key(row.orgName)}
 
-        levels=json.dumps(list(self.__conf.location_levels.values())).replace(' ','')
-        root=rq.get(f"{self.base_url}/api/organisationUnits?fields=id,name,level&filter=name:eq:{self.__conf.country}").json()['organisationUnits'][0]
-        url = f"{self.base_url}/api/organisationUnits?filter=path:like:{root['id']}&filter=level:in:{levels}&fields=id~rename(orgUnit),name~rename(orgName),level,ancestors[name]&paging=false"
-        orgs = pd.json_normalize(rq.get(url).json()["organisationUnits"])
+        if os.path.exists('.data/organisationUnits.json'):
+            with open('.data/organisationUnits.json','r') as file:
+                orgs=pd.json_normalize(json.load(file))
+        else:
+            levels=json.dumps(list(self.__conf.location_levels.values())).replace(' ','')
+            root=rq.get(f"{self.base_url}/api/organisationUnits?fields=id,name,level&filter=name:eq:{self.__conf.country}").json()['organisationUnits'][0]
+            url = f"{self.base_url}/api/organisationUnits?filter=path:like:{root['id']}&filter=level:in:{levels}&fields=id~rename(orgUnit),name~rename(orgName),level,ancestors[name]&paging=false"
+            orgs = pd.json_normalize(rq.get(url).json()["organisationUnits"])
+            orgs.to_csv('temp_orgs.csv')
+
         orgs['name_key'] = orgs.orgName.apply(self.__prep_key)
         orgs['location']=orgs.apply(set_location,axis=1)
         return orgs
@@ -114,8 +123,11 @@ class DHIS:
             return obj
 
     def upload_orgs(self, dataset_id, org_names: list, data):
+        url = f"{self.base_url}/api/dataValueSets" 
+        if hasattr(self.__conf,'upload_endpoint'):
+           url = self.__conf.upload_endpoint
+
         results = []
-        url = f"{self.base_url}/api/dataValueSets"
         for org_name in org_names:
             org = data[data.orgUnit == org_name].copy()
             org.dropna(subset=["value"], inplace=True)
@@ -142,17 +154,15 @@ class DHIS:
 
 _log = logger.get_logger_message_only()
 log_lock = threading.Lock()
-
-
 def _log_response(rs, dot=True):
     with log_lock:
-        if rs.status_code != 200 and rs.status_code != 201:
-            _log.error(rs.text)
-        elif dot:
-            _log.info(".")
-        else:
-            _log.info(rs.text)
-        try: return rs.json().get("status")
+        try:
+            results=rs.json() 
+            if rs.status_code != 200 and rs.status_code != 201:
+                _log.error(json.dumps(results))
+            elif dot:
+                _log.info(".")
+            return results.get("status")
         except json.decoder.JSONDecodeError:
             _log.error(rs.text)
 
