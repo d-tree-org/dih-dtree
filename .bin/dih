@@ -109,7 +109,7 @@ function deploy() {
 function remove_cron(){
    folder="$(sed -r 's:[.\-]:/:g' <<< $1)"
    echo "$1" and "$folder"
-   docker exec -u jamii dih-cronies bash -c 'crontab -l | grep -vE "\b'"$1"'\$" | crontab -' &&
+   docker exec -u jamii dih-cronies -it bash -c 'crontab -l | grep -vE "\b'"$1"'\$" | crontab -' &&
    docker exec dih-cronies rm -r "$folder"
 }
 
@@ -128,7 +128,7 @@ run) docker exec -u \
 
 down) docker-compose -f $2 down ;;
 stop) docker ps | grep "$2" | awk '{print $1}' | xargs docker stop ;;
-rm) docker container ls -a | grep "$2" | awk '{print $1}' | xargs docker stop | xargs docker rm ;;
+rm) docker container ls -a | grep "root_folder":"/home/n2/projects/dih-dtree/cronies/dhis$2" | awk '{print $1}' | xargs docker stop | xargs docker rm ;;
 deploy) deploy $2 $3 ;;
 remove) remove_cron $2;
 esac
