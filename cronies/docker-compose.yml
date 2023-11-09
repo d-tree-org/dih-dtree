@@ -10,7 +10,7 @@ services:
       - .env
     volumes: 
       - dih-common:/dih/common/
-    entrypoint: start cronies runner
+    entrypoint: start launch
     networks:
       - dih-network
 

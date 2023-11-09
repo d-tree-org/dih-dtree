@@ -6,51 +6,66 @@ cronies_path="$project_home"/cronies
 
 trim() { sed -r 's/^\s*//g;s/\s*$//g'; }
 quiet() { "$@" &>/dev/null; }
-unindent(){ sed -r 's/^\s{4}//';}
+unindent() { sed -r 's/^\s{4}//'; }
 
-function clear(){
-    docker container ls -aq | xargs docker stop 2>/dev/null| xargs docker rm 2>/dev/null
-    for it in {volume,network}; do 
-        docker $it ls  -q | xargs docker $it rm 2>/dev/null ; done
+function json_field(){
+    unindent <<-CODE | "$(which_python)" 
+    import json;
+    with open('$1') as file:
+        data=json.load(file);
+        print(data['cronies']['$2'])
+CODE
+
 }
 
-function which_python(){
-    quiet command -v python3 && echo python3 && return 0;
-    quiet command -v python && echo python && return 0;
+function clear() {
+    docker container ls -aq | xargs docker stop 2>/dev/null | xargs docker rm 2>/dev/null
+    for it in {volume,network}; do
+        docker $it ls -q | xargs docker $it rm 2>/dev/null
+    done
+}
+
+function which_python() {
+    quiet command -v python3 && echo python3 && return 0
+    quiet command -v python && echo python && return 0
     [ -d "$project_home/.bin/python/bin/" ] ||
-      tar -xJf "$project_home/cronies/libs/python-3.11.3.tar.xz" --directory  "$project_home/.bin"
-    echo   "$project_home/.bin/python/bin/python3"
+        tar -xJf "$project_home/cronies/libs/python-3.11.3.tar.xz" --directory "$project_home/.bin"
+    echo "$project_home/.bin/python/bin/python3"
 }
 
-function copy_configs_files(){
+function copy_configs_files() {
     file="$1"
-    [ ! -f $file ] && return 23;
+    [ ! -f $file ] && return 23
 
     docker run -d --rm --name dih_temp -v dih-common:/dih/common busybox tail -f /dev/null
     docker exec dih_temp mkdir -p /dih/common/{certs/ssh,configs}
 
-    proj=$(basename "$file"| grep -Po '^[^.]+')
-    docker cp "$file"  "dih_temp:/dih/common/configs/${proj}.json"
+    proj=$(basename "$file" | grep -Po '^[^.]+')
+    docker cp "$file" "dih_temp:/dih/common/configs/${proj}.json"
 
-    ssh_file=$("$(which_python)" -c "import json; print(json.load(open('${file}'))['cronies']['ssh_key_file'])")
-    if [ -f $ssh_file ]; then 
-        docker cp "$ssh_file"  dih_temp:/dih/common/certs/ssh/id_rsa
+    ssh_file=$(json_field $1 'ssh_key_file')
+    echo ssh file ni $ssh_file
+    if [ -f $ssh_file ]; then
+        docker cp "$ssh_file" dih_temp:/dih/common/certs/ssh/id_rsa
         docker exec dih_temp chmod 600 /dih/common/certs/ssh/id_rsa
-    else echo "$ssh_file is not a valid file"
+    else
+        echo "$ssh_file is not a valid file"
     fi
     docker stop dih_temp
 }
 
-function generate_compose_file(){
+function generate_compose_file() {
+
     file="$1"
+    echo faili ni $file
     cron_env="$project_home/cronies/.env"
     base="$project_home/backends/dhis"
-    proj=$(basename "$file"| grep -Po '^[^.]+')
+    proj=$(basename "$file" | grep -Po '^[^.]+')
     env_file="$base/compose/$proj.env"
     compose="$base/$proj-compose.yml"
     cp $base/compose/compose-template.yml $compose
 
-    unindent <<- CODE | "$(which_python)"
+    unindent <<-CODE | "$(which_python)"
     import json
     with open('$file') as file, open('$env_file','w') as back_env, open('$cron_env','w') as cron_env:
         obj=json.load(file)
@@ -72,39 +87,48 @@ function generate_compose_file(){
         comp=comp.replace('\${env_file}','$env_file')
         compose_file.write(comp)
 CODE
-    sed -ri '/^\W*\$\{\w+\}\W*:\W*\/data.*/d' $compose   #remove empty data backups volumes
+    sed -ri '/^\W*\$\{\w+\}\W*:\W*\/data.*/d' $compose #remove empty data backups volumes
 }
 
-function generate_compose_file_py(){
-    env_file=$1
-    proj=$(basename "$env_file"| grep -Po '^[^.]+')
-    base=$(dirname "$env_file")
-    compose_file="$(dirname $base)/$proj-compose.yml"
-    cp $base/compose-template.yml $compose_file 
-
+function create_shared_docker_resources() {
+    docker network create --subnet=172.10.16.0/24 dih-network 2>/dev/null
+    docker volume create dih-common 2>/dev/null
 }
 
-function create_shared_docker_resources(){
-    docker network create --subnet=172.10.16.0/24  dih-network  2>/dev/null
-    docker volume create  dih-common 2>/dev/null
+function deploy() {
+    root_folder=$(json_field $1 "root_folder")
+    [ -n $(find "${root_folder}" -name run -print -quit) ] ||
+        { echo "must contain the file run in the path $1/run" && exit 1; }
+    echo root folder is $root_folder;
+    copy_configs_files $1
+    docker cp "${root_folder}" dih-cronies:/dih/cronies/
+    docker exec dih-cronies start add_cron
+    echo done deployment of $1
 }
 
+function remove_cron(){
+   folder="$(sed -r 's:[.\-]:/:g' <<< $1)"
+   echo "$1" and "$folder"
+   docker exec -u jamii dih-cronies bash -c 'crontab -l | grep -vE "\b'"$1"'\$" | crontab -' &&
+   docker exec dih-cronies rm -r "$folder"
+}
 
 case $1 in
-    clear) clear ;;
-    common) create_shared_docker_resources ;;
-    *.json)  create_shared_docker_resources && generate_compose_file $1 && copy_configs_files $1 ;;
-    *.yml) create_shared_docker_resources; docker-compose -f $1 up -d ;; 
-    logs) docker-compose -f $2 logs -f & ;; 
-    run) docker exec -u \
-        $(grep -Po 'dih_user=\K\w+' "$project_home/cronies/.env") \
-        -it dih-cronies bash -c "(cd dhis/\$2 && ./run \${@:3})" bash ${@} ;;
+clear) clear ;;
+common) create_shared_docker_resources ;;
+*.json) create_shared_docker_resources && generate_compose_file $1 && copy_configs_files $1 ;;
+*.yml)
+    create_shared_docker_resources
+    docker-compose -f $1 up -d
+    ;;
+logs) docker-compose -f $2 logs -f & ;;
+run) docker exec -u \
+    $(grep -Po 'dih_user=\K\w+' "$project_home/cronies/.env") \
+    -it dih-cronies bash -c "(cd dhis/\$2 && ./run \${@:3})" bash ${@} ;;
 
-    down) docker-compose -f $2 down ;;
-    stop)  docker ps  | grep "$2" | awk '{print $1}' | xargs docker stop ;; 
-    rm)  docker container ls -a  | grep "$2" | awk '{print $1}' | xargs docker stop |xargs docker rm;; 
+down) docker-compose -f $2 down ;;
+stop) docker ps | grep "$2" | awk '{print $1}' | xargs docker stop ;;
+rm) docker container ls -a | grep "$2" | awk '{print $1}' | xargs docker stop | xargs docker rm ;;
+deploy) deploy $2 $3 ;;
+remove) remove_cron $2;
 esac
-
-
-
-

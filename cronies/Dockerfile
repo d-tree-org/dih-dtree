@@ -9,7 +9,6 @@ ENV PATH="${PATH}:/dih/bin:/dih/lib/python/bin"
 COPY --chown=root:dih  libs/python*.tar.xz lib/
 COPY --chown=root:dih ./ cronies
 COPY --chown=root:dih start.sh bin/start
-COPY --chown=root:dih runuser.sh bin/runuser
 WORKDIR /dih/cronies
 RUN mkdir /dih/common \
     && chown :dih -R /dih \

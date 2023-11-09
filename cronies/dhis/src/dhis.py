@@ -40,7 +40,7 @@ class DHIS:
 
     def rename_db_values(self,df:pd.DataFrame):
         if 'rename' not in self._mapping_file.sheet_names: return df
-        df=df.copy()
+        df = df.copy()
         rename_sh=pd.read_excel(self._mapping_file,'rename')
         for n in rename_sh.db_column.unique():
             x=pd.merge(df,rename_sh,how='left',left_on=n,right_on='db_name')
