@@ -41,15 +41,19 @@ def _process_downloaded_data(dhis: DHIS, month: str, e_map: pd.DataFrame):
     common = ["orgUnit", "categoryOptionCombo", "period"]
     data = pd.DataFrame(columns=common)
     files = [file for file in os.listdir(".data/views") if month in file]
+    if not os.path.exists(".data/processed"):
+        os.makedirs(".data/processed")
     for file in files:
         df = pd.read_csv(f".data/views/{file}")
         df["period"] = pd.to_datetime(df.reported_month).dt.strftime("%Y%m")
-        df = dhis.rename_db_values(df)
+        df = dhis.rename_db_dhis(df)
         df = dhis.add_category_combos_id(df)
         df = dhis.add_org_unit_id(df)
         df = df.dropna(subset=["orgUnit"])
         df = _change_columns_include_tablename(file, df)
+        # dhis.to_data_values(df,e_map).to_csv(f'.data/processed/{file}')
         data = data.merge(df, how="outer", on=common)
+    # return data;
     return dhis.to_data_values(data, e_map)
 
 
