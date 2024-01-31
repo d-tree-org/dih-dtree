@@ -1,4 +1,5 @@
 import json, collections, re
+import secrets
 from concurrent.futures import ThreadPoolExecutor
 import concurrent.futures
 from typing import Callable, Any
@@ -6,6 +7,8 @@ from subprocess import Popen, PIPE
 from datetime import datetime
 from dateutil.relativedelta import relativedelta
 from datetime import datetime
+from collections import namedtuple
+
 
 class _Command:
     def __init__(self, cmd, bg=True):
@@ -62,7 +65,17 @@ def get_config(config_file="/dih/common/configs/${proj}.json"):
         for k,v in x.items():
             if isinstance(v, (str, int, float)):
                 c[k] = x[k]
-    return collections.namedtuple("p", c.keys())(*c.values())
+    return namedtuple("p", c.keys())(*c.values())
+
+def to_namedtuple(obj:dict):
+
+    def change(item):
+        if isinstance(item, dict):
+            NamedTupleType = namedtuple('NamedTupleType', item.keys())
+            return NamedTupleType(**item)
+        return item
+    return walk(obj,change)
+
 
 
 def get_month(delta):
@@ -98,3 +111,20 @@ def parse_month(date:str):
         except ValueError:
             pass
     raise ValueError("Invalid date format")
+
+def walk(element, action):
+    if isinstance(element, dict):
+        parent = {key: walk(value, action) for key, value in element.items()}
+        return action(parent)
+    elif isinstance(element, list):
+        return [walk(item, action) for item in element]
+    else:
+        return action(element)
+
+def strong_password(length=16):
+    if length < 12:
+        raise ValueError("Password length should be at least 12 characters for security")
+
+    characters = string.ascii_letters + string.digits + string.punctuation
+    password = ''.join(secrets.choice(characters) for _ in range(length))
+    return password

@@ -14,13 +14,6 @@ class DHIS:
         self.datasets = self._get_datasets()
         self._log = logger.get_logger_message_only()
 
-    def _normalize_combo2(self, input):
-        c = input.lower().strip()
-        c = re.sub(r"(default(.+)|(.+)default)", r"\2\3", c)
-        c = re.sub(r"(\d+)\D+(\d+)?\s*(yrs|year|mon|week|day)\w+", r"\1-\2\3", c)
-        c = re.sub(r"(\d+)\D*(trimester).*", r"\1_\2", c)
-        return ",".join(sorted([x.strip() for x in c.split(",") if x]))
-
     def _normalize_combo(self,input):
         c = input.lower().strip()
         c = re.sub(r"(default(.+)|(.+)default)", r"\2\3", c)
@@ -35,29 +28,18 @@ class DHIS:
         if os.path.exists(".data/dataSets.json"):
             with open(".data/dataSets.json", "r") as file:
                 return pd.DataFrame(json.load(file))
+
         dataset_ids = ",".join(
             pd.read_excel(self._mapping_file, "data_elements")
-            .dataset_id.unique()
+            .dataset_id.dropna().unique()
             .tolist()
         )
         url = f"{self.base_url}/api/dataSets?fields=id,name&filter=id:in:[{dataset_ids}]&paging=false"
         return pd.DataFrame(rq.get(url).json()["dataSets"])
 
-    # def _get_category_combos(self):
-    #     if "category_option_combos" in self._mapping_file.sheet_names:
-    #         cmb = pd.read_excel(self._mapping_file, "category_option_combos").dropna()
-    #         cmb["disaggregationValue"]
-    #     else:
-    #         url = f"{self.base_url}/api/categoryOptionCombos?paging=false&fields=id~rename(categoryOptionCombo),displayName~rename(disaggregationValue)"
-    #         cmb = pd.json_normalize(rq.get(url).json()["categoryOptionCombos"])
-    #     cmb["disaggregation_value"] = cmb.disaggregationValue.apply(
-    #         self._normalize_combo
-    #     )
-    #     return cmb
     def _get_category_combos(self):
         if "category_option_combos" in self._mapping_file.sheet_names:
             cmb = pd.read_excel(self._mapping_file, "category_option_combos").dropna()
-            cmb["CategoryCombo"] = cmb["CategoryCombo"].apply(self._normalize_combo)
         else:
             url = f"{self.base_url}/api/categoryOptionCombos?paging=false&fields=id,displayName~rename(disaggregationValue),categoryCombo[id,displayName]"
             cmb = pd.json_normalize(rq.get(url).json()["categoryOptionCombos"]).rename(columns={
