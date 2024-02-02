@@ -8,6 +8,8 @@ from datetime import datetime
 from dateutil.relativedelta import relativedelta
 from datetime import datetime
 from collections import namedtuple
+import numpy as np
+import asyncio, aiohttp
 
 
 class _Command:
@@ -57,25 +59,44 @@ def do_chunks(
             r = res.result()
             consumer_func(i, r)
 
+async def default_consumer_func(index,result):
+    pass
+
+async def do_chunks_async(
+    source: list,
+    chunk_size: int,
+    func: "Callable[..., Awaitable[Any]]",  # func needs to be an async function
+    consumer_func: "Callable[..., Awaitable[None]]" = default_consumer_func,  # Assuming print for simplicity
+):
+    chunks = [source[i : i + chunk_size] for i in range(0, len(source), chunk_size)]
+    tasks = [func(chunk) for chunk in chunks]
+
+    for i, task in enumerate(asyncio.as_completed(tasks)):
+        r = await task
+        await consumer_func(i, r)
+
 
 def get_config(config_file="/dih/common/configs/${proj}.json"):
     with open(config_file) as file:
         x = json.load(file)
-        c = x['cronies']
-        for k,v in x.items():
+        c = x["cronies"]
+        c["tunnel_ssh"] = c.get(
+            "tunnel_ssh", "echo running sql without opening ssh-tunnel"
+        )
+        for k, v in x.items():
             if isinstance(v, (str, int, float)):
                 c[k] = x[k]
     return namedtuple("p", c.keys())(*c.values())
 
-def to_namedtuple(obj:dict):
 
+def to_namedtuple(obj: dict):
     def change(item):
         if isinstance(item, dict):
-            NamedTupleType = namedtuple('NamedTupleType', item.keys())
+            NamedTupleType = namedtuple("NamedTupleType", item.keys())
             return NamedTupleType(**item)
         return item
-    return walk(obj,change)
 
+    return walk(obj, change)
 
 
 def get_month(delta):
@@ -94,23 +115,16 @@ def to_file(file_name, text, mode="w"):
         return file.write(text)
 
 
-def log_response(rs, dot=None):
-    if dot and rs.response_code == 200 or rs.response_code == 201:
-        print(".", end="", flush=True)
-    else:
-        print(rs.text)
-    return rs.json().get("status")
-
-
-def parse_month(date:str):
-    formats = ['%Y%m', '%Y%m%d', '%d%m%Y','%m%Y']
+def parse_month(date: str):
+    formats = ["%Y%m", "%Y%m%d", "%d%m%Y", "%m%Y"]
     for fmt in formats:
         try:
-            dt = datetime.strptime(re.sub(r'\W+', '', date), fmt)
-            return dt.replace(day=1).strftime('%Y-%m-%d')
+            dt = datetime.strptime(re.sub(r"\W+", "", date), fmt)
+            return dt.replace(day=1).strftime("%Y-%m-%d")
         except ValueError:
             pass
     raise ValueError("Invalid date format")
+
 
 def walk(element, action):
     if isinstance(element, dict):
@@ -121,10 +135,41 @@ def walk(element, action):
     else:
         return action(element)
 
+
 def strong_password(length=16):
     if length < 12:
-        raise ValueError("Password length should be at least 12 characters for security")
+        raise ValueError(
+            "Password length should be at least 12 characters for security"
+        )
 
     characters = string.ascii_letters + string.digits + string.punctuation
-    password = ''.join(secrets.choice(characters) for _ in range(length))
+    password = "".join(secrets.choice(characters) for _ in range(length))
     return password
+
+
+class NumpyEncoder(json.JSONEncoder):
+    def default(self, obj):
+        if isinstance(obj, np.integer):
+            return int(obj)
+        elif isinstance(obj, np.floating):
+            return float(obj)
+        elif isinstance(obj, np.ndarray):
+            return obj.tolist()
+        else:
+            return super().default(obj)
+
+
+async def post(url, payload):
+    async with aiohttp.ClientSession() as session:
+        json_payload = json.dumps(payload, cls=NumpyEncoder)
+        try:
+            async with session.post(
+                url, data=json_payload, headers={"Content-Type": "application/json"}
+            ) as response:
+                if response.status in (200, 201):
+                    return await response.json()  # Parse JSON content
+                else:
+                    error_message = await response.text()  # Get error message
+                    raise Exception(f"Error {response.status}: {error_message}")
+        except aiohttp.ClientError as e:
+            raise Exception(f"Request failed: {e}")

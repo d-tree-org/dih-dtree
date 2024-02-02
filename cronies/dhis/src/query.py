@@ -13,5 +13,6 @@ def _get_db_view(db_view_name):
 
 def get_sql(db_view_name: str, month: str):
     db_view=_get_db_view(db_view_name)
-    return f"select * from {db_view} where reported_month='{month}'"
+    col='reported_month' if 'referral' not in db_view_name else 'issued_month'
+    return f"select * from {db_view} where {col}='{month}'"
 

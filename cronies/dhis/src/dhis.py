@@ -1,28 +1,30 @@
-import pandas as pd, numpy as np, re, requests as rq, threading, json, sys, os
+import pandas as pd, numpy as np, re, asyncio, aiohttp, requests as rq, threading, json, sys, os
 
 sys.path.append("../../libs")
 import cron_logger as logger
+import utils as fn
 
 
 class DHIS:
     def __init__(self, conf, mapping_file):
+        self._log = logger.get_logger_message_only()
+        self._log.info(f"initiating connections dhis ... ")
         self.__conf = conf
         self._mapping_file = mapping_file
         self.base_url = conf.dhis_url
         self.orgs = self._get_org_units()
         self.combos = self._get_category_combos()
         self.datasets = self._get_datasets()
-        self._log = logger.get_logger_message_only()
+        self._log.info(f"dhis reached OK \n")
 
-    def _normalize_combo(self,input):
+    def _normalize_combo(self, input):
         c = input.lower().strip()
         c = re.sub(r"(default(.+)|(.+)default)", r"\2\3", c)
         c = re.sub(r"(\d+)\D+(\d+)?\s*(yrs|year|mon|week|day)\w+", r"\1-\2\3", c)
         c = re.sub(r"(\d+)\D*(trimester).*", r"\1_\2", c)
-        c= re.sub(r'(\W*,\W*|\Wand\W)',',',c)
-        c= re.sub(r'(\W*to\W*|\s+|\-)','_',c)
-        return ",".join(sorted([x.strip() for x in c.split(',') if x]))
-
+        c = re.sub(r"(\W*,\W*|\Wand\W)", ",", c)
+        c = re.sub(r"(\W*to\W*|\s+|\-)", "_", c)
+        return ",".join(sorted([x.strip() for x in c.split(",") if x]))
 
     def _get_datasets(self):
         if os.path.exists(".data/dataSets.json"):
@@ -31,7 +33,8 @@ class DHIS:
 
         dataset_ids = ",".join(
             pd.read_excel(self._mapping_file, "data_elements")
-            .dataset_id.dropna().unique()
+            .dataset_id.dropna()
+            .unique()
             .tolist()
         )
         url = f"{self.base_url}/api/dataSets?fields=id,name&filter=id:in:[{dataset_ids}]&paging=false"
@@ -42,21 +45,27 @@ class DHIS:
             cmb = pd.read_excel(self._mapping_file, "category_option_combos").dropna()
         else:
             url = f"{self.base_url}/api/categoryOptionCombos?paging=false&fields=id,displayName~rename(disaggregationValue),categoryCombo[id,displayName]"
-            cmb = pd.json_normalize(rq.get(url).json()["categoryOptionCombos"]).rename(columns={
-                'categoryCombo.displayName':'disaggregation',
-                'categoryCombo.id':'disaggregation_id',
-                'disaggregationValue':'disaggregation_value',
-                'id':'categoryOptionCombo'
-                })
+            cmb = pd.json_normalize(rq.get(url).json()["categoryOptionCombos"]).rename(
+                columns={
+                    "categoryCombo.displayName": "disaggregation",
+                    "categoryCombo.id": "disaggregation_id",
+                    "disaggregationValue": "disaggregation_value",
+                    "id": "categoryOptionCombo",
+                }
+            )
         cmb["disaggregation"] = cmb["disaggregation"].apply(self._normalize_combo)
-        cmb["disaggregation_value"] = cmb["disaggregation_value"].apply(self._normalize_combo)
-        cmb["combined_key"] = cmb.apply(lambda row: (row["disaggregation"], row["disaggregation_value"]), axis=1)
+        cmb["disaggregation_value"] = cmb["disaggregation_value"].apply(
+            self._normalize_combo
+        )
+        cmb["combined_key"] = cmb.apply(
+            lambda row: (row["disaggregation"], row["disaggregation_value"]), axis=1
+        )
         return cmb
 
     def _rename_db_columns(self, df: pd.DataFrame, rename_sh: pd.DataFrame):
         if "rename" not in self._mapping_file.sheet_names:
             return df
-        rn=rename_sh[rename_sh.what=='column'];
+        rn = rename_sh[rename_sh.what == "column"]
         column_mapping = dict(zip(rn["db_column"], rn["dhis_name"]))
         df.rename(columns=column_mapping, inplace=True)
         return df
@@ -67,7 +76,7 @@ class DHIS:
         df = df.copy()
         rename_sh = pd.read_excel(self._mapping_file, "rename")
         df = self._rename_db_columns(df, rename_sh)
-        for n in rename_sh[rename_sh.what=='value'].db_column.unique():
+        for n in rename_sh[rename_sh.what == "value"].db_column.unique():
             if n not in df.columns:
                 continue
             x = pd.merge(df, rename_sh, how="left", left_on=n, right_on="db_name")
@@ -116,11 +125,14 @@ class DHIS:
         data["disaggregation_value"] = data.disaggregation_value.fillna("default")
         data["disaggregation"] = data.disaggregation.fillna("default")
         # Normalize both columns
-        data["disaggregation_value"] = data["disaggregation_value"].apply(self._normalize_combo)
+        data["disaggregation_value"] = data["disaggregation_value"].apply(
+            self._normalize_combo
+        )
         data["disaggregation"] = data["disaggregation"].apply(self._normalize_combo)
-        data["combined_key"] = data.apply(lambda row: (row["disaggregation"], row["disaggregation_value"]), axis=1)
+        data["combined_key"] = data.apply(
+            lambda row: (row["disaggregation"], row["disaggregation_value"]), axis=1
+        )
         return data.merge(self.combos, how="left", on="combined_key")
-
 
     def add_org_unit_id(self, data: pd.DataFrame):
         def find_matching(x):
@@ -150,83 +162,70 @@ class DHIS:
         output = output.drop_duplicates()
         return output
 
-    def __convert_int64(self, obj):
-        if isinstance(obj, dict):
-            return {key: self.__convert_int64(value) for key, value in obj.items()}
-        elif isinstance(obj, list):
-            return [self.__convert_int64(item) for item in obj]
-        elif isinstance(obj, np.int64):
-            return int(obj)
-        else:
-            return obj
-
-    def upload_orgs(self, dataset_id, org_names: list, data):
+    async def upload_orgs(self, files:list, upload_summary):
         url = f"{self.base_url}/api/dataValueSets"
         if hasattr(self.__conf, "upload_endpoint"):
             url = self.__conf.upload_endpoint
 
         results = []
-        for org_name in org_names:
-            org = data[data.orgUnit == org_name].copy()
+        data = map(pd.read_csv, files)
+        for org in data:
             org.dropna(subset=["value"], inplace=True)
             org.dropna(subset=["categoryOptionCombo"], inplace=True)
+            org.dropna(subset=["dataElement"], inplace=True)
+            values = org[["dataSet","dataElement", "categoryOptionCombo", "value"]].to_dict(
+                orient="records"
+            )
             payload = {
                 "orgUnit": org["orgUnit"].iloc[0],
                 "period": org["period"].iloc[0],
-                "dataSet": dataset_id,
                 "completeData": True,
                 "overwrite": True,
-                "dataValues": org[
-                    ["dataElement", "categoryOptionCombo", "value"]
-                ].to_dict(orient="records"),
+                "dataValues": values,
             }
-            res = _log_response(rq.post(url, json=payload))
-            results.append(res)
-        return results
+            rs=await _post_data(url,payload,dot=True)
+            results.append(rs)
+        upload_summary.add(results)
 
     def refresh_analytics(self):
+        if self.__conf.run_analytics != "on":
+            return
+        self._log.info("Starting to refresh analytics ...")
         resp = rq.post(f"{self.base_url}/api/resourceTables/analytics").json()
         self._log.info(f' Analytics: {resp.get("status")}, {resp.get("message")}')
         return resp.get("status")
 
 
 _log = logger.get_logger_message_only()
-log_lock = threading.Lock()
+log_lock = asyncio.Lock()
 
-
-def _log_response(rs, dot=True):
-    with log_lock:
+async def _post_data(url,payload, dot=True):
+    async with log_lock:  # Use an async with block for the asyncio.Lock
         try:
-            results = rs.json()
-            if rs.status_code != 200 and rs.status_code != 201:
-                _log.error(json.dumps(results))
-            elif dot:
+            results = await fn.post(url,payload)
+            if dot:
                 _log.info(".")
             return results.get("status")
-        except json.decoder.JSONDecodeError:
-            _log.error(rs.text)
+        except Exception as error:
+            _log.error(error)
 
 
 class UploadSummary:
     def __init__(self, dhis: DHIS):
-        self.summary = {}
-        self._datasets = dhis.datasets
+        self.summary = {"success": 0, "error": 0}
 
-    def add(self, ds_id, results):
-        ds = self.summary.setdefault(ds_id, {"success": 0, "error": 0})
-        ds["success"] += results.count("OK")
-        ds["error"] += len(results) - results.count("OK")
+    def add(self,results):
+        self.summary["success"] += results.count("OK")
+        self.summary["error"] += len(results) - results.count("OK")
 
     def get_slack_post(self, month: str):
-        ds = self._datasets
         msg = [f"*JnA DHIS uploaded results for `{month}`*", "", ""]
-        for id_category, counts in self.summary.items():
-            msg.extend(
-                [
-                    ds[ds.id == id_category].name.values[0],
-                    f"\t\u2022\tSuccess: {counts['success']}",
-                    f"\t\u2022\tError: {counts['error']}",
-                    "",
-                ]
-            )
+        msg.extend(
+            [
+                f'Total of {self.summary["error"] + self.summary["success"]} organisation Units were processed and:',
+                f"\t\u2022\tSuccess: {self.summary['success']}",
+                f"\t\u2022\tError: {self.summary['error']}",
+                "",
+            ]
+        )
         return {"text": "\n".join(msg)}

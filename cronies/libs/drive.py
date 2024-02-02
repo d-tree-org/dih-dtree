@@ -79,3 +79,6 @@ class Drive:
 
     def get_df(self, file, sheet_name):
         return pd.read_excel(self.download_excel_file(file), sheet_name)
+
+    def get_excel(self, fileid):
+        return pd.ExcelFile(self.download_excel_file(fileid))
