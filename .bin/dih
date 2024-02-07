@@ -109,7 +109,7 @@ function deploy() {
 function remove_cron(){
    folder="$(sed -r 's:[.\-]:/:g' <<< $1)"
    echo "$1" and "$folder"
-   docker exec -u jamii dih-cronies -it bash -c 'crontab -l | grep -vE "\b'"$1"'\$" | crontab -' &&
+   docker exec -u mwcore dih-cronies bash -c 'crontab -l | grep -vE "\b'"$1"'\$" | crontab -' &&
    docker exec dih-cronies rm -r "$folder"
 }
 

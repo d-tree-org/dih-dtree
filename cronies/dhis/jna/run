@@ -18,7 +18,7 @@ def run():
         args = vars(parser.parse_args())  # Convert args to dictionary
 
         data=main.start(
-            config_file="/home/e/.siri/jna.json",
+            config_file="/home/e/.siri/local.jna.json",
             month=fn.parse_month(args['month']) if args.get('month') else fn.get_month(-1),
             task_name="dhis-jna",
             only_new_elements=args.get('only_new')

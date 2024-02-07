@@ -11,7 +11,6 @@ function create_run_command() {
         cd /dih/cronies/\${1//./\//}
         echo running \$1 >> /dih/cronies/logs/cron.log  2>&1
         ./run "\${@:2}" >> /dih/cronies/logs/cron.log  2>&1
-
 RUN_FILE
         chmod +x /dih/bin/run && chown :dih /dih/bin/run
     echo user set
@@ -82,8 +81,25 @@ function install_cron() {
     sed -ri 's/^\W*#\W*cron_time\W.*//g' $files
 }
 
+
 function should_initialize() {
     ! quiet crontab -l &&
         ! quiet which python &&
         ! quiet which pip
+}
+
+
+function encrypt(){
+  local password="$1"
+  local file_to_encrypt="$2"
+  local encrypted_file="${file_to_encrypt}.enc"
+  openssl enc -aes-256-cbc -pbkdf2 -iter 10000 -salt -in "$file_to_encrypt" -out "$encrypted_file" -pass pass:"$password"
+}
+
+
+function decrypt(){
+  local password="$1"
+  local encrypted_file="$2"
+  local file="${encrypted_file%*.enc}"
+  openssl enc -aes-256-cbc -d -pbkdf2 -iter 10000 -salt -in "$encrypted_file" -out "$file" -pass pass:"$password"
 }

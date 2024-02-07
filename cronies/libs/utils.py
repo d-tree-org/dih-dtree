@@ -141,7 +141,6 @@ def strong_password(length=16):
         raise ValueError(
             "Password length should be at least 12 characters for security"
         )
-
     characters = string.ascii_letters + string.digits + string.punctuation
     password = "".join(secrets.choice(characters) for _ in range(length))
     return password

@@ -5,7 +5,6 @@ import sqlalchemy
 sys.path.append("../../libs")
 from dhis import DHIS, UploadSummary
 from db import DB
-import query
 import utils as fn
 import cron_logger as logger
 import drive as gd
@@ -70,7 +69,7 @@ def _process_downloaded_data(dhis: DHIS, month: str, e_map: pd.DataFrame):
         df = pd.read_csv(f".data/views/{file}")
         df = dhis.rename_db_dhis(df)
         df = df.dropna(subset="reported_month")
-        df["period"] = "202312"  # pd.to_datetime(df.reported_month).dt.strftime("%Y%m")
+        df["period"] = pd.to_datetime(df.reported_month).dt.strftime("%Y%m")
         df = dhis.add_category_combos_id(df)
         df = dhis.add_org_unit_id(df)
         df = df.dropna(subset=["orgUnit"])
@@ -132,7 +131,7 @@ def start(
         mapping_file = drive.get_excel(conf.data_element_mapping)
         dhis = DHIS(conf, mapping_file)
         e_map = _get_the_mapping_file(mapping_file, only_new_elements)
-        # _download_matview_data(conf, month, e_map)
+        _download_matview_data(conf, month, e_map)
         _process_downloaded_data(dhis, month, e_map)
         asyncio.run(_upload(conf, dhis, month))
         dhis.refresh_analytics()

@@ -27,8 +27,8 @@ class DHIS:
         return ",".join(sorted([x.strip() for x in c.split(",") if x]))
 
     def _get_datasets(self):
-        if os.path.exists(".data/dataSets.json"):
-            with open(".data/dataSets.json", "r") as file:
+        if os.path.exists(".cache/dataSets.json"):
+            with open(".cache/dataSets.json", "r") as file:
                 return pd.DataFrame(json.load(file))
 
         dataset_ids = ",".join(
@@ -38,6 +38,8 @@ class DHIS:
             .tolist()
         )
         url = f"{self.base_url}/api/dataSets?fields=id,name&filter=id:in:[{dataset_ids}]&paging=false"
+        # with open(".cache/dataSets.json",'w') as file:
+            # json.dump(rq.get(url).json()["dataSets"],file,indent=2)
         return pd.DataFrame(rq.get(url).json()["dataSets"])
 
     def _get_category_combos(self):
@@ -99,8 +101,8 @@ class DHIS:
                 self.__prep_key(row.orgName)
             }
 
-        if os.path.exists(".data/organisationUnits.json"):
-            with open(".data/organisationUnits.json", "r") as file:
+        if os.path.exists(".cache/organisationUnits.json"):
+            with open(".cache/organisationUnits.json", "r") as file:
                 orgs = pd.json_normalize(json.load(file))
         else:
             levels = json.dumps(list(self.__conf.location_levels.values()))
@@ -109,8 +111,8 @@ class DHIS:
             root = rq.get(url_root).json()["organisationUnits"][0]
             url_orgs = f"{self.base_url}/api/organisationUnits?filter=path:like:{root['id']}&filter=level:in:{levels}&fields=id~rename(orgUnit),name~rename(orgName),level,ancestors[name]&paging=false"
             orgs = pd.json_normalize(rq.get(url_orgs).json()["organisationUnits"])
-            orgs.to_csv("temp_orgs.csv")
-
+            # with open(".cache/organisationUnits.json",'w') as file:
+                # json.dump(rq.get(url_orgs).json()["organisationUnits"],file,indent=2)
         orgs["name_key"] = orgs.orgName.apply(self.__prep_key)
         orgs["location"] = orgs.apply(set_location, axis=1)
         return orgs

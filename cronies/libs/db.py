@@ -39,6 +39,9 @@ class DB:
     def table(self, table_name, schema="public"):
         return self.file("describe_table.sql", {"table": table_name, "schema": schema})
 
+    def view(self, view_name):
+        return self.query("SELECT definition FROM pg_views WHERE viewname = '{view_name}'")
+
     def select_part_matview(self,sql_file):
         with open(sql_file, "r") as file:
             (sql,) = re.findall(
