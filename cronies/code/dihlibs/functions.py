@@ -9,40 +9,28 @@ from dateutil.relativedelta import relativedelta
 from datetime import datetime
 from collections import namedtuple
 import numpy as np
-import asyncio, aiohttp
+import asyncio, aiohttp, requests
+import argparse
+import yaml
+import string
+import os
+import select
+from dihlibs.command import _Command
 
-
-class _Command:
-    def __init__(self, cmd, bg=True):
-        self.cmd = cmd.split(" ")
-        self.bg = bg
-        self.executor = ThreadPoolExecutor(max_workers=2)
-        self.shell = Popen(self.cmd, stdout=PIPE, stderr=PIPE)
-        self.results = ""
-
-    def _io_once(self):
-        x = "readline" if self.bg else "read"
-        self.results = getattr(self.shell.stdout, x)().decode()
-        return self
-
-    def _io_poll(self):
-        while self.shell.poll() is None:
-            print(self.shell.stderr.readline().decode())
-        return self.__exit__()
-
-    def __enter__(self):
-        f1 = self.executor.submit(self._io_once)
-        f2 = self.executor.submit(self._io_poll)
-        f1.result()
-        return self
-
-    def __exit__(self, exc_type, exc_value, traceback):
-        self.shell.kill()
-        self.executor.shutdown()
 
 
 def run_cmd(cmd, bg=True):
     return _Command(cmd, bg)
+
+
+def get(obj, field, defaultValue=None):
+    """Retrieves a nested value with dot and array index support."""
+    for part in field.split("."):
+        try:
+            obj = obj[part] if isinstance(obj, dict) else obj[int(part)]
+        except (KeyError, IndexError, ValueError):
+            return defaultValue
+    return obj
 
 
 def do_chunks(
@@ -59,34 +47,35 @@ def do_chunks(
             r = res.result()
             consumer_func(i, r)
 
-async def default_consumer_func(index,result):
+
+async def default_consumer_func(index, result):
     pass
+
 
 async def do_chunks_async(
     source: list,
     chunk_size: int,
-    func: "Callable[..., Awaitable[Any]]",  # func needs to be an async function
+    func: "Callable[..., Awaitable[Any]]",
     consumer_func: "Callable[..., Awaitable[None]]" = default_consumer_func,  # Assuming print for simplicity
 ):
     chunks = [source[i : i + chunk_size] for i in range(0, len(source), chunk_size)]
-    tasks = [func(chunk) for chunk in chunks]
+    for chunk in chunks:
+        tasks = [asyncio.create_task(func(item)) for item in chunk]
+        for idx, result in enumerate(asyncio.as_completed(tasks)):
+            await consumer_func(idx, await result)
 
-    for i, task in enumerate(asyncio.as_completed(tasks)):
-        r = await task
-        await consumer_func(i, r)
+
+def file_dict(filename):
+    with open(filename) as file:
+        return json.load(file) if ".json" in filename else yaml.safe_load(file)
 
 
 def get_config(config_file="/dih/common/configs/${proj}.json"):
-    with open(config_file) as file:
-        x = json.load(file)
-        c = x["cronies"]
-        c["tunnel_ssh"] = c.get(
-            "tunnel_ssh", "echo running sql without opening ssh-tunnel"
-        )
-        for k, v in x.items():
-            if isinstance(v, (str, int, float)):
-                c[k] = x[k]
-    return namedtuple("p", c.keys())(*c.values())
+    x = file_dict(config_file)
+    c = x["cronies"]
+    c["country"] = x["country"]
+    c["tunnel_ssh"] = c.get("tunnel_ssh", "echo not opening ssh-tunnel")
+    return c
 
 
 def to_namedtuple(obj: dict):
@@ -128,10 +117,13 @@ def parse_month(date: str):
 
 def walk(element, action):
     if isinstance(element, dict):
-        parent = {key: walk(value, action) for key, value in element.items()}
+        gen = ((key, walk(value, action)) for key, value in element.items())
+        parent = {key: value for key, value in gen if value is not None}
         return action(parent)
     elif isinstance(element, list):
-        return [walk(item, action) for item in element]
+        gen = (walk(item, action) for item in element)
+        parent = [item for item in gen if item is not None]
+        return action(parent)
     else:
         return action(element)
 
@@ -160,15 +152,16 @@ class NumpyEncoder(json.JSONEncoder):
 
 async def post(url, payload):
     async with aiohttp.ClientSession() as session:
-        json_payload = json.dumps(payload, cls=NumpyEncoder)
         try:
             async with session.post(
-                url, data=json_payload, headers={"Content-Type": "application/json"}
+                url,
+                data=json.dumps(payload, cls=NumpyEncoder),
+                headers={"Content-Type": "application/json"},
             ) as response:
                 if response.status in (200, 201):
                     return await response.json()  # Parse JSON content
                 else:
-                    error_message = await response.text()  # Get error message
-                    raise Exception(f"Error {response.status}: {error_message}")
+                    return {"status": "error", "error": await response.text()}
         except aiohttp.ClientError as e:
-            raise Exception(f"Request failed: {e}")
+            return {"status": "error", "error": f"Request failed: {e}"}
+

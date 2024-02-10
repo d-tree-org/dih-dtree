@@ -56,18 +56,20 @@ function setup_python() {
 }
 
 function install_pip_dependencies() {
-    pip --version
     regx='^\W*#\W*pip\s*\K.*'
     files=$(find /dih/cronies -name run -maxdepth 3 -type f -exec grep -lP $regx {} '+' | xargs)
     grep -ohP $regx $files |
         sed -r 's/(install|\-\-upgrade)//g; s/(^\s*|\s*$)//g; s/\s+/ /g' | sort -u |
         xargs pip install --upgrade pip
-    sed -ri 's/^\W*#\W*pip\W.*//g' $files
+    [ -n "$files" ]  && sed -ri 's/^\W*#\W*pip\W.*//g' "$files"
+    return 0;
 }
 
 function install_cron() {
     mkdir -p /dih/cronies/logs
     touch /dih/cronies/logs/cron.log
+    echo "hapa imefika kwenye kuinstall crones"
+    ls /dih/cronies
     regx='^\W*#\W*cron_time\s*\K.*'
     files=$(find /dih/cronies -name run -maxdepth 3 -type f -exec grep -lP $regx {} '+' | xargs)
     {
@@ -78,7 +80,8 @@ function install_cron() {
                 echo "$cron run $cmd"
             done
     } | crontab -
-    sed -ri 's/^\W*#\W*cron_time\W.*//g' $files
+    [ -n "$files" ] && sed -ri 's/^\W*#\W*cron_time\W.*//g' "$files"
+    return 0
 }
 
 

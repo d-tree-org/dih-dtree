@@ -96,10 +96,10 @@ function create_shared_docker_resources() {
 }
 
 function deploy() {
-    root_folder=$(json_field $1 "root_folder")
-    [ -n $(find "${root_folder}" -name run -print -quit) ] ||
+    # root_folder=$(json_field $1 "root_folder")
+    [ -n $(find "$1" -name run -print -quit) ] ||
         { echo "must contain the file run in the path $1/run" && exit 1; }
-    echo root folder is $root_folder;
+    # echo root folder is $root_folder;
     copy_configs_files $1
     docker cp "${root_folder}" dih-cronies:/dih/cronies/
     docker exec dih-cronies start add_cron

@@ -1,0 +1,27 @@
+[{
+  "shortName": "{change}",
+  "id": "{change}",
+  "displayShortName": "{change}",
+  "displayName": "{change}",
+  "name": "{change}",
+  "externalAccess": false,
+  "publicAccess": "rwr-----",
+  "userGroupAccesses": [],
+  "userAccesses": [],
+  "access": {
+    "manage": true,
+    "externalize": true,
+    "write": true,
+    "read": true,
+    "update": true,
+    "delete": true,
+    "data": {
+      "write": true,
+      "read": true
+    }
+  },
+  "favorites": [],
+  "dimensionItemType": "CATEGORY_OPTION",
+  "favorite": false,
+  "isDefault": false
+}]

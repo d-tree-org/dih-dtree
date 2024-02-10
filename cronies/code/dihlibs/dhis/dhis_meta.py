@@ -1,9 +1,8 @@
 import pandas as pd
 import requests as rq
 import sys
-sys.path.append("../../libs")
-import drive as gd,re,json
-import cron_logger as logger
+from dihlibs import drive as gd,re,json
+from dihlibs import cron_logger as logger
 
 log=logger.get_logger_message_only()
 

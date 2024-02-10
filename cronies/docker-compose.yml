@@ -10,7 +10,7 @@ services:
       - .env
     volumes: 
       - dih-common:/dih/common/
-    entrypoint: start launch
+    entrypoint: start.sh launch
     networks:
       - dih-network
 

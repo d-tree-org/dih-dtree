@@ -4,13 +4,25 @@ from sqlalchemy.orm import sessionmaker
 from sqlalchemy import text
 import re
 from collections import namedtuple
+import dihlibs.functions as fn
+from pathlib import Path
+
 
 
 class DB:
-    def __init__(self, conf: namedtuple):
-        self.connection_string = conf.postgres_url
+    def __init__(self, postgres_url='',tunnel_ssh='',config_file=''):
+        self.connection_string = postgres_url
+        self.tunnel_ssh = tunnel_ssh
+        if config_file:
+            conf=fn.get_config(config_file)
+            self.connection_string = conf.get('postgres_url')
+            self.tunnel_ssh = conf.get('tunnel_ssh')
+
         self.engine = create_engine(self.connection_string)
         self.Session = sessionmaker(bind=self.engine)
+
+    def open_ssh(self):
+        return fn.run_cmd(self.tunnel_ssh)
 
     def exec(self, query, params=None):
         with self.Session() as session:
@@ -37,7 +49,8 @@ class DB:
         return self.query(query)
 
     def table(self, table_name, schema="public"):
-        return self.file("describe_table.sql", {"table": table_name, "schema": schema})
+        sql_file=Path(__file__).parent / "describe_table.sql"
+        return self.file(sql_file, {"table": table_name, "schema": schema})
 
     def view(self, view_name):
         return self.query("SELECT definition FROM pg_views WHERE viewname = '{view_name}'")

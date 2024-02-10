@@ -1,5 +1,5 @@
 #!/bin/bash
-source /dih/cronies/functions.sh
+source /dih/bin/functions.sh
 
 function launch() {
     cron_log="/dih/cronies/logs/cron.log";
@@ -8,7 +8,7 @@ function launch() {
         install_apt_dependencies &&
         quiet cron &&
         runuser -u $dih_user -- bash <<-CODE
-        source /dih/cronies/functions.sh;
+        source /dih/bin/functions.sh;
         should_initialize &&
             setup_python &&
             install_pip_dependencies &&
@@ -22,7 +22,7 @@ function add_cron() {
     setup_user &&
     install_apt_dependencies &&
         runuser -u $dih_user -- bash <<-CODE
-        source /dih/cronies/functions.sh;
+        source /dih/bin/functions.sh;
             install_pip_dependencies &&
             install_cron
 CODE

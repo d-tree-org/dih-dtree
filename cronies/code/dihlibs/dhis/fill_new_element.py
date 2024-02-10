@@ -1,14 +1,13 @@
 import os, sys
 import pandas as pd
 import sqlalchemy
-
-sys.path.append("../../libs")
-import dhis as dh
-import query
-import utils as fn
-import cron_logger as logger
-import drive as gd
 import requests
+
+import dihlibs.dhis.dhis as dh
+import dihlibs.query
+import dihlibs.utils as fn
+import dihlibs.cron_logger as logger
+import dihlibs.drive as gd
 
 log = None
 
