@@ -16,7 +16,7 @@ class DB:
         if config_file:
             conf=fn.get_config(config_file)
             self.connection_string = conf.get('postgres_url')
-            self.tunnel_ssh = conf.get('tunnel_ssh')
+            self.tunnel_ssh = conf.get('ssh')
 
         self.engine = create_engine(self.connection_string)
         self.Session = sessionmaker(bind=self.engine)

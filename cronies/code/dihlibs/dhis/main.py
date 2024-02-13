@@ -120,12 +120,18 @@ def notify_on_slack(message: dict):
     res = requests.post(conf.get('slack_webhook_url'), json=message)
     log.info(f"slack text status,{res.status_code},{res.text}")
 
+def deploy_cron():
+    with fn.run_cmd(f'deploy_cron {conf.get("deploy")}') as cmd:
+        return cmd.wait()
 
 def start():
     global log
     log = logger.get_logger_task(conf.get('task_dir'))
     log.info(f"Initiating..")
     try:
+        if conf.get('deploy'):
+            log.info(deploy_cron());
+            return;
         dhis = DHIS(conf)
         _download_matview_data()
         _process_downloaded_data(dhis)

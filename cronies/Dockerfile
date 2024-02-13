@@ -8,6 +8,7 @@ WORKDIR /dih
 ENV PATH="${PATH}:/dih/bin:/dih/lib/python/bin"
 COPY --chown=root:dih  bin/python*.tar.xz lib/
 COPY --chown=root:dih bin/*.sh bin/
+COPY --chown=root:dih code/dihlibs/bash/*.sh bin/
 WORKDIR /dih/cronies
 RUN mkdir /dih/common \
     && chown :dih -R /dih \
