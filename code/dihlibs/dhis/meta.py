@@ -1,38 +1,47 @@
-import pandas as pd
+import pandas as pd,sys,re,json
 import requests as rq
-import sys
-from dihlibs import drive as gd,re,json
-from dihlibs import cron_logger as logger
+import pkg_resources as pkg
+from dihlibs import drive as gd,cron_logger as logger
 
 log=logger.get_logger_message_only()
 
-class DHIS_Meta:
+class Meta:
 
-    def __init__(self,conf:object) -> None:
-        self._base_url=conf.dhis_url
-        element_map = gd.Drive(conf.drive_key).get_df(conf.data_element_mapping,'data_elements')
-        self._map=element_map.rename(columns={"element_id":"id","short_name":"shortName"})
+    def __init__(self,dhis_url:str,map:pd.DataFrame) -> None:
+        self._map=map.rename(columns={"element_id":"id","short_name":"shortName"})
+        self._base_url=dhis_url
         self._map['description']=''
 
-
     def push_new_elements(self):
-        template=pd.read_json('../templates/data_element.json',orient='records')
+        file = pkg.resource_filename("dihlibs", "data/dhis_templates/data_element.json")
+        template=pd.read_json(file,orient='records')
         template=template[[x for x in template.columns if x not in self._map.columns]]
-        new=self._map[self._map.is_new==True][['name','shortName','description','id']].dropna(subset=['name','shortName'])
+        new=self._map[self._map.selection=='new'][['name','shortName','description','id']].dropna(subset=['name','shortName'])
 
         new=new.merge(template,how='cross').fillna('').to_dict(orient='records')
         res= rq.post(f'{self._base_url}/api/metadata',json={"dataElements":new})
         return res.json()
 
+    def _normalize_combo(self, input):
+        c = input.lower().strip()
+        c = re.sub(r"(default(.+)|(.+)default)", r"\2\3", c)
+        c = re.sub(r"(\d+)\D+(\d+)?\s*(yrs|year|mon|week|day)\w+", r"\1-\2\3", c)
+        c = re.sub(r"(\d+)\D*(trimester).*", r"\1_\2", c)
+        c = re.sub(r"(\W*,\W*|\Wand\W)", ",", c)
+        c = re.sub(r"(\W*to\W*|\s+|\-)", "_", c)
+        c = re.sub(r"_{2,}", "_", c)
+        return ",".join(sorted([x.strip() for x in c.split(",") if x]))
 
     def add_category_combo(self):
         res=rq.get(f"{self._base_url}/api/categoryCombos?paging=false&fields=id~rename(categoryCombo),name~rename(comboName)").json()
         combos=pd.DataFrame(res.get('categoryCombos'))
         clean=lambda input:','.join(sorted(re.split(r'(?:\s+)?(?:,|and)(?:\s+)?',input))).replace(' ','_').lower()
-        combos['comboName']=combos.comboName.apply(clean)
-        self._map['comboName']=self._map.disaggregation.fillna('default').apply(clean)
-        return self._map.merge(combos,how='left',on='comboName')
-
+        combos['comboName']=combos.comboName.apply(self._normalize_combo)
+        self._map['comboName']=self._map.disaggregation.fillna('default').apply(self._normalize_combo)
+        n= self._map.merge(combos,how='left',on='comboName')
+        self._map.to_csv('selfmap.csv')
+        combos.to_csv('nselfmap.csv')
+        return n
 
     def update_dataset(self):
         datasets=[]

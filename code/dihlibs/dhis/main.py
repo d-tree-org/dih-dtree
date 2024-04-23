@@ -10,45 +10,44 @@ from dihlibs.dhis.configuration import Configuration
 from dihlibs import functions as fn
 from dihlibs import cron_logger as logger
 from dihlibs import drive as gd
+from dihlibs.node import Node
 import tempfile
 
 
 log = None
-conf=Configuration()
+conf = Configuration()
 
-def download_matview_data(view_names, month: str, db: DB):
-    for view_name in view_names:
-        matview = view_name
-        if "sql_" in view_name:
-            sql = db.select_part_matview(f"sql/{view_name[4:]}.sql")
+
+def download_matview_data(views, db: DB):
+    for v in views:
+        view = Node(v)
+        matview = view.db_view
+        if "sql_" in matview:
+            sql = db.select_part_matview(f"sql/{matview[4:]}.sql")
             matview = f"({sql}) as data_cte "
 
-        col = "issued_month" if "referral" in view_name else "reported_month"
-        sql = f"select * from {matview} where {col}='{month}'"
-        db.query(sql).to_csv(f".data/views/{view_name}-{month}.csv")
-    return f"Downloaded {','.join(view_names)}"
+        sql = f"select * from {matview} where {view.period_column}='{view.period_db}'"
+        db.query(sql).to_csv(f".data/views/{view.db_view}:{view.period}.csv")
+    return f"Downloaded {view.db_view}"
 
 
-def _download_matview_data():
+def _download_matview_data(dhis: DHIS):
     os.makedirs(".data/views", exist_ok=True)
-    db = DB(conf=conf)
-    e_map=conf.get('mapping_element')
-    month=conf.get('month')
-    with tempfile.NamedTemporaryFile(delete=False) as key:
-        key.write(conf.get_file('tunnel').encode())
-        file_path = key.name  # This holds the absolute path to the temporary file
-        with db.open_ssh(file_path) as shell:
-            log.info("Starting to download data from SQL view...")
-            log.info(shell.wait())
-            fn.do_chunks(
-                source=e_map.db_view.unique(),
-                chunk_size=1,  # Each chunk is a single view
-                func=partial(download_matview_data, month=month, db=db),
-                consumer_func=lambda _,results:log.info(results),
-                thread_count=10
-            )
-        e_map.to_csv(f".data/element_map-{month}.csv")
-
+    db = DB(conf=conf.conf)
+    e_map = conf.get_element_mappings(dhis)
+    with tempfile.NamedTemporaryFile(delete=True) as key:
+        key.write(conf.get_file("tunnel"))
+        key.flush()
+        db.ssh_run(
+            fn.do_chunks,
+            source=e_map.drop_duplicates(subset="db_view").to_dict(orient="records"),
+            chunk_size=1,  # Each chunk is a single view
+            func=partial(download_matview_data, db=db),
+            consumer_func=lambda _, results: log.info(results),
+            thread_count=10,
+            key_file=key.name,
+        )
+        # e_map.to_csv(f".data/element_map-{month}.csv")
 
 
 def _add_tablename_columns(file_name, df):
@@ -58,66 +57,77 @@ def _add_tablename_columns(file_name, df):
     return df
 
 
-def _save_processed_org(df: pd.DataFrame, month):
+def clear_old_files(e_map):
+    folder='.data/processed/'
+    for _, m in e_map.drop_duplicates(subset="db_view").iterrows():
+        file_to_clear = [folder + f for f in os.listdir(folder) if m.period in f and os.path.isfile(folder+f) ]
+        for file in file_to_clear:
+            os.unlink(file)
+
+def _save_processed_org(df: pd.DataFrame, period):
     for org in df.orgUnit.unique():
         x = df.loc[df.orgUnit == org, :]
-        filepath = f".data/processed/{month}/{org}.csv"
+        filepath = f".data/processed/{period}:{org}.csv"
         is_new_file = not os.path.exists(filepath)
         x.to_csv(filepath, index=False, mode="a", header=is_new_file)
+        
 
 
 def _process_downloaded_data(dhis: DHIS):
     log.info("Starting to convert into DHIS2 payload ....")
-    e_map=conf.get('mapping_element')
-    month=conf.get('month')
-    files = filter(lambda file: month in file, os.listdir(".data/views"))
-    os.makedirs(f".data/processed/{month}", exist_ok=True)
-    for file in files:
+    os.makedirs(f".data/processed/", exist_ok=True)
+    e_map = conf.get_element_mappings(dhis)
+    clear_old_files(e_map)
+    for _, m in e_map.drop_duplicates(subset="db_view").iterrows():
+        file = f".data/views/{m.db_view}:{m.period}.csv"
+        if not os.path.isfile(file):
+            continue
         log.info(f"    .... processing {file}")
-        df = pd.read_csv(f".data/views/{file}")
+
+        df = pd.read_csv(file)
         df = dhis.rename_db_dhis(df)
-        df = df.dropna(subset="reported_month")
-        df["period"] = pd.to_datetime(df.reported_month).dt.strftime("%Y%m")
+        df = df.dropna(subset=m.period_column)
+        df["period"] = m.period
         df = dhis.add_category_combos_id(df)
         df = dhis.add_org_unit_id(df)
         df = df.dropna(subset=["orgUnit"])
-        df = _add_tablename_columns(file, df)
+        df = _add_tablename_columns(m.db_view, df)
         df = dhis.to_data_values(df, e_map)
-        _save_processed_org(df, month)
+        _save_processed_org(df, m.period)
 
 
-async def _upload(
-    dhis: DHIS,
-):
-    month=conf.get('month')
+async def _upload(dhis: DHIS):
     log.info("Starting to upload payload...")
-    folder = f".data/processed/{month}/"
-    files = [folder + x for x in os.listdir(folder)]
-    summary=UploadSummary(dhis)
+
+    periods = conf.get_element_mappings(dhis).period.drop_duplicates().tolist()
+    folder = f".data/processed/"
+    files = [folder + f for f in os.listdir(folder) if f.split(":")[0] in periods]
+    summary = UploadSummary(dhis)
     await fn.do_chunks_async(
         source=files,
         chunk_size=80,
         func=partial(dhis.upload_org, upload_summary=summary),
     )
     log.info("\n")
-    msg = summary.get_slack_post(month)
+    msg = summary.get_slack_post(", ".join(periods))
     notify_on_slack(msg)
 
 
 def notify_on_slack(message: dict):
-    if conf.get('notifications') != "on":
+    if conf.get("notifications") != "on":
         log.error(f"for slack: {message}")
         return
-    res = requests.post(conf.get('slack_webhook_url'), json=message)
+    res = requests.post(conf.get("slack_webhook_url"), json=message)
     log.info(f"slack text status,{res.status_code},{res.text}")
+
 
 def start():
     global log
-    log = logger.get_logger_task(conf.get('task_dir'))
+    log = logger.get_logger_task(conf.get("task_dir"))
     log.info(f"Initiating..")
     try:
         dhis = DHIS(conf)
-        _download_matview_data()
+        _download_matview_data(dhis)
         _process_downloaded_data(dhis)
         asyncio.run(_upload(dhis))
         dhis.refresh_analytics()
@@ -125,6 +135,6 @@ def start():
         log.exception(f"error while runninng for period {conf.get('month')} { str(e) }")
         notify_on_slack({"text": "ERROR: " + str(e)})
 
+
 if __name__ == "__main__":
     start()
-

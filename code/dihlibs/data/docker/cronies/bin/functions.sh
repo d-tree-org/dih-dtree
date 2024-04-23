@@ -66,13 +66,6 @@ function set_logfile(){
     chmod g+w /dih/cronies/logs/cron.log
 }
 
-function set_cron() {
-    echo " SHELL=/bin/bash
-        PATH=$PATH " |
-        trim | crontab -
-
-    echo 'done setting up cron'
-}
 
 
 function should_initialize() {

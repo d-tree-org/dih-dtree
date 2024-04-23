@@ -3,6 +3,11 @@
 trim() { sed -r 's/^\s*//g;s/\s*$//g'; }
 quiet() { "$@" &>/dev/null; }
 
+quote(){ 
+    read -r a 
+    printf '%s\n' "$a" | sed 's:[\/&]:\\&:g'; }
+
+
 setup_user() {
     [[ -z $dih_user ]] ||
         quiet id $dih_user ||

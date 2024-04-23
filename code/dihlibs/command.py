@@ -30,9 +30,12 @@ class _Command:
         return self
 
 
-    def wait(self):
+    def wait(self,timeout=None):
         f2 = self.executor.submit(self.interract)
-        return f2.result()
+        try:
+            return f2.result(timeout=timeout)
+        except concurrent.futures.TimeoutError:
+            return 'command timed out';
 
     def send(self,msg):
         self.shell.stdin.write(msg.encode() + b'\n')

@@ -2,7 +2,7 @@ from setuptools import setup, find_packages
 
 setup(
     name="dihlibs",
-    version="0.0.15",
+    version="0.0.29",
     author="Nitu",
     author_email="nkataraia@d-tree.org",
     description="A helper package for data integrations",
@@ -15,6 +15,7 @@ setup(
         "dihlibs": [
             "data/bash/script.sh",
             "data/describe_table.sql",
+            "data/df_update_table.sql",
             "data/docker/backend.zip",
             "data/docker/cronies.zip"
         ],

@@ -78,7 +78,7 @@ change_admin_org() {
 change_admin_password() {
     #anchoring password field to same parent as previousPasswords field so since the path changes accroding to DHIS2 instance
     fetch users code:eq:admin "district" |
-        sed -r "s/\"previousPasswords/\"password\":\"$dhis_admin_password\",\"previousPasswords/g" |
+        sed -r 's/"previousPasswords"/"password":"'$(quote<<<"$dhis_admin_password")'","previousPasswords"/g'|
         put "users" "district"
     [ $? -eq 0 ] && echo 'successfully changed admin password' || echo ' could not change admin password'
 }

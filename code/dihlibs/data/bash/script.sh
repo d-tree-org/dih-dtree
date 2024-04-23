@@ -2,14 +2,18 @@
 
 function trim() { sed -r 's/^\s*//g;s/\s*$//g'; }
 function quiet() { "$@" &>/dev/null; }
-function get_nth_dir() { 
-    local p="$1"; 
-    for ((i=0; i<$2; i++)); do p=$(dirname "$p"); done; 
-
-    local dir_name=$(basename "$p")
-    echo "$dir_name" "$p"; 
+function quote() {
+    read -r a
+    printf '%s\n' "$a" | sed 's:[\/&]:\\&:g'
 }
 
+function get_nth_dir() {
+    local p="$1"
+    for ((i = 0; i < $2; i++)); do p=$(dirname "$p"); done
+
+    local dir_name=$(basename "$p")
+    echo "$dir_name" "$p"
+}
 
 function encrypt() {
     # Check for password input method
@@ -54,25 +58,25 @@ CODE
 }
 
 function turn_on_cron_container() {
-    echo turning on dhis containers
+    create_shared_docker_resources
     docker-compose -f .cache/docker/cronies/docker-compose.yml up -d 2>&1
 }
 
 function turn_on_dhis_containers() {
-    echo turning on dhis containers
+    create_shared_docker_resources
     docker-compose -f .cache/docker/backend/dhis/"$1"-compose.yml up -d 2>&1
 }
 
 function set_cron() {
-    read proj path <<< $(get_nth_dir "$1" 1)
+    read proj path <<<$(get_nth_dir "$1" 1)
     file="$(basename "$1")"
     conf="${file%.zip.enc}/config.yaml"
     user="$(yq .dih_user -r <"$conf")"
-    cron="$(yq .cronies.cron_time -r < $conf ) run ${proj} ${file}"
+    cron="$(yq .cronies.cron_time -r <$conf) run ${proj} ${file}"
 
     docker exec -u $user dih-cronies bash -c 'crontab -l | {
         read cronies;
-        echo "$cronies" | sed "s/#.*//g"|grep -vE "^\W*$" | grep -Eq "PATH" || echo -e "SHELL=/bin/bash\\nPATH=$PATH"
+        echo "$cronies" | sed "s/#.*//g"|grep -vE "^\W*$" | grep -Eq "(PATH|SHELL)" || echo -e "SHELL=/bin/bash\\nPATH=$PATH"
         echo "$cronies" | grep -Eq "'"$cron"'" || echo -e "$cronies"\\n"'"$cron"'" ;
     } | crontab -'
     echo "done setting cron"
@@ -88,14 +92,14 @@ function create_docker_user() {
         chown -R $user /dih/cronies/$2"
 }
 
-function files_to_container(){
+function files_to_container() {
     folder="$(basename ${1%.zip.enc})"
-    read proj path <<< $(get_nth_dir "$1" 1)
+    read proj path <<<$(get_nth_dir "$1" 1)
 
-    rename_host='s/(dhis_url.*)localhost([^@]*$)?/\1'"${folder}"'-dhis:8080\2/g' 
+    rename_host='s/(dhis_url.*)localhost([^@]*$)?/\1'"${folder}"'-dhis:8080\2/g'
     sed -ri "$rename_host" "$folder/config.yaml"
 
-    strong_password > .env
+    strong_password >.env
     docker exec dih-cronies mkdir -p "/dih/cronies/${proj}"
     for x in {.cache,sql,"$folder",.env}; do
         docker cp ./$x "dih-cronies:/dih/cronies/${proj}"
@@ -106,19 +110,27 @@ function files_to_container(){
 
 function deploy_cron() {
     file="$(realpath $1)"
-    read locname loc <<< $(get_nth_dir "$file" 1)
+    read locname loc <<<$(get_nth_dir "$file" 1)
 
     temp=$(mktemp -d)
-    cp -r "$loc/"* "$loc/".* $temp
+    cp -r "$loc/"* "$loc"/.[!.]* "$temp"
     cd $temp
-    [ -d $file ] ||decrypt $(basename "$file") < .env;
-        files_to_container "$file"
-        create_docker_user "$file"
-        set_cron "$file"
-
+    [ -d "$file" ] || decrypt $(basename "$file") <.env
+    files_to_container "$file"
+    create_docker_user "$file"
+    set_cron "$file"
     rm -rf $temp
 
-    echo done deployment of $proj
+    [ -d "$file" ] && strong_password 65 >.env && encrypt $file <.env
+    echo done deployment of "$proj"
+}
+
+function nuke-docker(){
+    docker container ls -aq | xargs docker stop | xargs docker rm
+    docker images -q | xargs docker image rm
+    yes | docker image prune
+    docker network ls -q| xargs docker network rm
+    docker volume ls -q| xargs docker volume rm
 }
 
 function perform() {
@@ -132,10 +144,23 @@ function perform() {
     down) docker-compose -f $2 down ;;
     stop) docker ps | grep "$2" | awk '{print $1}' | xargs docker stop ;;
     rm) docker container ls -a | grep "$2" | awk '{print $1}' | xargs docker stop | xargs docker rm ;;
+    nuke-docker) nuke-docker ;;
     esac
 }
 
 function create_shared_docker_resources() {
-    docker network create --subnet=172.10.16.0/24 dih-network 2>/dev/null
-    docker volume create dih-common 2>/dev/null
+    quiet docker network inspect dih-network ||
+        docker network create --subnet=172.10.16.0/24 dih-network
+
+    quiet docker volume inspect dih-common ||
+        docker volume create dih-common
 }
+
+function check_if_docker_needs_sudo() {
+    quiet command -v docker ||
+        alias docker='sudo docker'
+    quiet command -v docker-compose ||
+        alias docker-compose='sudo docker-compose'
+}
+
+check_if_docker_needs_sudo

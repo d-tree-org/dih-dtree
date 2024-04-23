@@ -1,4 +1,5 @@
 import json, collections, re
+import time
 import secrets
 from concurrent.futures import ThreadPoolExecutor
 import concurrent.futures
@@ -6,7 +7,6 @@ from typing import Callable, Any
 from subprocess import Popen, PIPE
 from datetime import datetime
 from dateutil.relativedelta import relativedelta
-from datetime import datetime
 from collections import namedtuple
 import numpy as np
 import asyncio, aiohttp, requests
@@ -16,13 +16,16 @@ import string
 import os
 import select
 from dihlibs.command import _Command
+from collections import deque
 
+
+DONE = object()
 
 def run_cmd(cmd, bg=True):
     return _Command(cmd, bg)
 
 
-def cmd_wait(cmd, bg=True,verbose=False):
+def cmd_wait(cmd, bg=True, verbose=False):
     with _Command(cmd, bg) as proc:
         rs = []
         while (x := proc.wait()) is not None:
@@ -30,15 +33,6 @@ def cmd_wait(cmd, bg=True,verbose=False):
                 print(x)
             rs.append(x)
         return "\n".join(rs)
-
-def get(obj, field, defaultValue=None):
-    """Retrieves a nested value with dot and array index support."""
-    for part in field.split("."):
-        try:
-            obj = obj[part] if isinstance(obj, dict) else obj[int(part)]
-        except (KeyError, IndexError, ValueError):
-            return defaultValue
-    return obj
 
 
 def do_chunks(
@@ -85,7 +79,6 @@ def get_config(config_file="/dih/common/configs/${proj}.json"):
     c["tunnel_ssh"] = c.get("tunnel_ssh", "echo not opening ssh-tunnel")
     return c
 
-
 def to_namedtuple(obj: dict):
     def change(item):
         if isinstance(item, dict):
@@ -95,27 +88,31 @@ def to_namedtuple(obj: dict):
 
     return walk(obj, change)
 
-
 def get_month(delta):
     ve = 1 if delta > 0 else -1
     x = datetime.today() + ve * relativedelta(months=abs(delta))
     return x.replace(day=1).strftime("%Y-%m-01")
+    
+def days_delta(delta):
+    ve = 1 if delta > 0 else -1
+    x = datetime.today() + ve * relativedelta(days=abs(delta))
+    return x.strftime(r"%Y-%m-%d")
 
-
-def file_text(file_name):
-    with open(file_name) as file:
+def file_binary(file_name):
+    with open(file_name, "rb") as file:
         return file.read()
 
-
-def to_file(file_name, text, mode="w"):
-    with open(file_name, mode=mode) as file:
-        return file.write(text)
+def text(filename,text=None,mode='w'):
+    if text is None:
+        with open(filename,mode='r') as file:
+            return file.read() 
+    with open(filename,mode) as file:
+        file.write(text)
 
 
 def lines_to_file(file_name, lines: list, mode="w"):
     data = "\n".join(lines)
-    to_file(file_name, data)
-
+    text(file_name, data)
 
 def parse_month(date: str):
     formats = ["%Y%m", "%Y%m%d", "%d%m%Y", "%m%Y"]
@@ -128,17 +125,16 @@ def parse_month(date: str):
     raise ValueError("Invalid date format")
 
 
-def walk(element, action):
-    if isinstance(element, dict):
-        gen = ((key, walk(value, action)) for key, value in element.items())
-        parent = {key: value for key, value in gen if value is not None}
-        return action(parent)
-    elif isinstance(element, list):
-        gen = (walk(item, action) for item in element)
-        parent = [item for item in gen if item is not None]
-        return action(parent)
-    else:
-        return action(element)
+def parse_date(date: str):
+    formats = ["%Y-%m-%d", "%Y-%m-%d", "%d-%m-%Y", "%d-%m-%y", "%m-%d-%Y"]
+    date = "-".join(y.zfill(2) for y in re.split(r"\W+", date))
+    for fmt in formats:
+        try:
+            dt = datetime.strptime(date, fmt)
+            return dt.strftime("%Y-%m-%d")
+        except ValueError:
+            pass
+    raise ValueError("Invalid date format")
 
 
 def strong_password(length=16):
@@ -184,7 +180,119 @@ def read_non_blocking(readables: list):
     ready_to_read, _, _ = select.select(readables, [], [], 0)
     data = []
     for fd in ready_to_read:
-        data.append(os.read(fd, max_bytes).decode('utf-8', errors='ignore').strip())
+        data.append(os.read(fd, max_bytes).decode("utf-8", errors="ignore").strip())
     data = [x for x in data if x]
     if len(data) > 0:
         return "\n".join(data)
+
+
+def flattern(item, sep="_"):
+    queue = deque([("", item)])
+    flat = {}
+    while queue:
+        path, value = queue.popleft()
+        if not isinstance(value, (list, dict)):
+            flat[path.strip(sep)] = value
+            continue
+
+        iterable = value.items() if isinstance(value, dict) else enumerate(value)
+        for k, v in iterable:
+            queue.append((path + sep + str(k), v))
+    return flat
+
+
+def build_tree(nodes, get_parent_id=None):
+    graph = {}
+    for node in nodes:
+        node.node_parent_id = get_parent_id(node)
+        if node.node_parent_id not in graph:
+            graph[node.node_parent_id] = []
+        graph[node.node_parent_id].append(node)
+    return graph
+
+
+def bfs(graph, root, got_node):
+    queue = deque([(root, [])])
+    visited = set()
+    results = []
+    while queue:
+        node, path = queue.popleft()
+        if node.node_id in visited:
+            continue
+        elif (rs := got_node(path, node)) is DONE:
+            return results
+        elif rs is not None:
+            results.append(rs)
+
+        visited.add(node.node_id)
+        for child in graph.get(node.node_id, []):
+            queue.append((child, path + [node]))
+    return results
+
+
+def to_snake_case(s):
+    return re.sub(r"([a-z0-9])([A-Z])|[\s_-]+", r"\1_\2", s).lower()
+
+
+def is_recent_file(filename, age=3600 * 24):
+    return (
+        os.path.isfile(filename)
+        and time.time() - os.path.getctime(filename) < age
+        and os.path.getsize(filename) > 2
+    )
+
+
+def cache_decorator(func):
+    def wrapper(self, filename, age=3600, *args, **kwargs):
+        cached = f".cache/{filename}.json" if "." not in filename else filename
+        is_json = ".json" in cached
+        if is_recent_file(cached):
+            print(filename, "exists not downloading")
+            data = text(cached)
+            return json.loads(data) if is_json else data
+        else:
+            print(filename, f"downloading {filename}")
+            result = func(self, filename, *args, **kwargs)
+            if not re.match("^https?.*", filename) and result:
+                print(cached)
+                os.makedirs(".cache", exist_ok=True)
+                text(cached, json.dumps(result) if is_json else result)
+            return result
+
+    return wrapper
+
+
+def catch_json_error(func):
+    # @functools.wraps(func)
+    def wrapper(*args, **kwargs):
+        try:
+            return func(*args, **kwargs)
+        except ValueError:  # Catch JSON decoding errors
+            response = func(*args, **kwargs)  # Get the original response
+            return response.text  # Return the response text
+
+    return wrapper
+
+
+def walk(element, action):
+    if isinstance(element, dict):
+        gen = ((key, walk(value, action)) for key, value in element.items())
+        parent = {key: value for key, value in gen if value is not None}
+        return action(parent)
+    elif isinstance(element, list):
+        gen = (walk(item, action) for item in element)
+        parent = [item for item in gen if item is not None]
+        return action(parent)
+    else:
+        return action(element)
+
+
+def get(_obj, field, defaultValue=None):
+    """Retrieves a nested value with dot and array index support."""
+    obj = _obj
+    for part in field.split("."):
+        try:
+            obj = obj[part] if isinstance(obj, dict) else obj[int(part)]
+        except (KeyError, IndexError, ValueError):
+            return defaultValue
+    return obj

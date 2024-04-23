@@ -1,26 +1,19 @@
 ## Command line helper script: dih  
 #### Script Description
-This Bash script is designed to perform various tasks related to a project. It includes functions for managing Docker containers, generating Docker Compose configuration files, copying configuration files, and more.
+This Python script is designed to perform various tasks related to moving data from a Relational database into DHIS. It includes functions for managing Docker containers, generating Docker Compose configuration files, copying configuration files, setting up cron jobs and more.
 
 #### Prerequisites
 Before using this script, ensure you have the following prerequisites:
 
+- Bash 
 - Docker installed on your system.
+- Python 3
 
 
 ### Installation
-
-To make this script available as a command with a name starting with "dih" follow one of these methods:
-
-- **Create a Bash Alias:**
-    - In your .bashrc add a line
+- Run the following command
         ```
-        alias dih=<path_project>/.bin/dih
-        ```
-- **OR Create a Symbolic link**
-    - Run the following command
-        ```
-        ln -s <path_to_project>/.bin/dih /usr/local/bin/dih
+        pip install --upgrade dihlibs
         ```
 
 ### Usage

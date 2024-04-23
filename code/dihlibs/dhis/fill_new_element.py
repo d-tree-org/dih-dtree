@@ -82,6 +82,7 @@ def notify_on_slack(conf:object,message:dict):
     if conf.notification!= 'on': return;
     res=requests.post(conf.slack_webhook_url,message)
     print('slack text status',res.status_code,res.text)
+    lpk,.7
 
 
 

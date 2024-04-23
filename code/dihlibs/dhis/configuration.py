@@ -5,6 +5,8 @@ import requests, asyncio
 from functools import partial
 import argparse
 
+from dihlibs.dhis.meta import Meta
+from dihlibs.node import Node
 from dihlibs.dhis import DHIS, UploadSummary
 from dihlibs import functions as fn
 from dihlibs import cron_logger as logger
@@ -20,24 +22,28 @@ class Configuration:
         if action is None:
             self.conf.update(self._get_mappings(self.conf))
             return
-
-        elif action == "dhis":
-            self.create_dhis_compose()
-            exit(0)
-
-        elif action == "cron":
-            self.create_cron_compose()
-            exit(0)
-
         else:
-            try:
+            self._invoke_action(action)
+
+    def _invoke_action(self, action):
+        try:
+            if action == "dhis":
+                self.create_dhis_compose()
+
+            elif action == "cron":
+                self.create_cron_compose()
+
+            elif action == "update-element":
+                self.update_data_elements()
+
+            else:
                 data = fn.read_non_blocking([sys.stdin.fileno(), sys.stderr.fileno()])
                 data_input = f"<<<{shlex.quote(data)}" if data else ""
                 command = f"perform {action} {self.get('config-file')} {data_input}"
-                fn.cmd_wait(command,verbose=True)
-            except KeyboardInterrupt:
-                pass
-            exit(0)
+                fn.cmd_wait(command, verbose=True)
+        except KeyboardInterrupt:
+            pass
+        exit(0)
 
     def _load(self):
         args = self._get_commandline_args()
@@ -52,7 +58,7 @@ class Configuration:
         c["action"] = args.get("action")
         c["country"] = conf["country"]
         # c["ssh"] = c.get("tunnel_ssh", "echo No ssh command")
-        c["month"] = fn.parse_month(args.get("month", fn.get_month(-1)))
+        c["date"] = fn.parse_date(args.get("date", fn.days_delta(-1)))
         c["selection"] = args.get("selection")
         c["task_dir"] = os.path.basename(os.getcwd())
         c["config-file"] = args.get("config-file")
@@ -64,13 +70,13 @@ class Configuration:
             file = next(filter(lambda x: "zip.enc" in x, os.listdir()), "no-file")
         else:
             file = args.get("config-file")
-        return file
+        return file.strip("/")
 
     def _get_commandline_args(self):
         parser = argparse.ArgumentParser(
             description="For moving data from postgresql warehouse to dhis2"
         )
-        parser.add_argument("-m", "--month", type=str, help="Date in format YYYY-MM")
+        parser.add_argument("-d", "--date", type=str, help="Date in format YYYY-MM-DD")
         parser.add_argument("-s", "--selection", type=str, help="Element Selection")
         parser.add_argument("-a", "--action", type=str, help="do various functions")
         parser.add_argument(
@@ -108,6 +114,10 @@ class Configuration:
     def get(self, what: str, default=None):
         return self.conf.get(what, default)
 
+    def get_element_mappings(self, dhis: DHIS):
+        e_map = self.get("mapping_element")
+        return dhis.add_dataset_periods(e_map, self.get("date"))
+
     def _get_conf(self, args):
         file = args.get("config-file")
         folder = file.replace(".zip.enc", "")
@@ -116,6 +126,7 @@ class Configuration:
             if args.get("action") != "encrypt":
                 command = f" strong_password 64 > .env && encrypt {folder} < .env "
                 print(fn.cmd_wait(command))
+                fn.cmd_wait(command)
                 args["config-file"] = f"{file}.zip.enc"
                 conf["config-file"] = f"{file}.zip.enc"
             return conf
@@ -142,33 +153,38 @@ class Configuration:
 
         command = f"cd .cache/docker && cp {cronies} . && unzip -o cronies.zip -d . && rm cronies.zip "
         fn.cmd_wait(command)
-        fn.to_file(".cache/docker/cronies/.env", f'proj={self.get("config-folder")}')
-        fn.cmd_wait("turn_on_cron_container",verbose=True)
+        fn.text(".cache/docker/cronies/.env", f'proj={self.get("config-folder")}')
+        fn.cmd_wait("turn_on_cron_container", verbose=True)
 
     def create_dhis_compose(self):
         os.makedirs(".cache/docker/backend", exist_ok=True)
-        print('changes hapa')
         # create compose file
         backend = pkr.resource_filename("dihlibs", "data/docker/backend.zip")
         command = f"cd .cache/docker && cp {backend}  . && unzip -o backend.zip -d . && rm backend.zip "
         fn.cmd_wait(command)
-        comp = fn.file_text(f".cache/docker/backend/dhis/compose/compose-template.yml")
+        comp = fn.text(f".cache/docker/backend/dhis/compose/compose-template.yml")
         conf = self.get_backend_conf()
         for key, value in conf.items():
             comp = comp.replace(f"${{{key}}}", value)
-        fn.to_file(f".cache/docker/backend/dhis/{conf.get('proj')}-compose.yml", comp)
+        fn.text(f".cache/docker/backend/dhis/{conf.get('proj')}-compose.yml", comp)
         # create env file
         entries = [f"{k}={v}" for k, v in conf.items()]
         fn.lines_to_file(f'.cache/docker/backend/dhis/{conf.get("env_file")}', entries)
-        #turn on containers right away
-        command=f'turn_on_dhis_containers {conf.get("proj")}'
-        fn.cmd_wait(command,verbose=True)
+        # turn on containers right away
+        command = f'turn_on_dhis_containers {conf.get("proj")}'
+        fn.cmd_wait(command, verbose=True)
 
     def get_file(self, filename):
         file = self.get("config-file")
         with tempfile.TemporaryDirectory() as temp_dir:
             temp = os.path.join(temp_dir, file)
             shutil.copy(file, temp)
-            password = shlex.quote(fn.file_text(".env"))
+            password = shlex.quote(fn.text(".env"))
             print(fn.cmd_wait(f"cd {temp_dir} && decrypt {temp} <<<{password}"))
-            return fn.file_text(temp.replace(".zip.enc", "/" + filename))
+            return fn.file_binary(temp.replace(".zip.enc", "/" + filename))
+
+    def update_data_elements(self):
+        conf=self._get_conf(self.conf).get('cronies')
+        conf.update(self._get_mappings(conf))
+        meta = Meta(conf.get('dhis_url'),conf.get('mapping_element'))
+        meta.update()

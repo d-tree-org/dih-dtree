@@ -11,9 +11,8 @@ function launch() {
         should_initialize &&
             setup_python &&
             install_pip_dependencies &&
-            set_cron &&
             set_logfile &&
-            echo "configuration log file is $cron_log \n done setting with setup you can now deploy" &&
+            echo -e "configuration log file is $cron_log \\n\\nDone with setup you can now deploy" &&
             tail -f $cron_log || tail -f /dev/null;
 
 CODE

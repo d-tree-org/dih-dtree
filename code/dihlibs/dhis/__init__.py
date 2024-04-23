@@ -1,4 +1,7 @@
 import pandas as pd, numpy as np, re, asyncio, aiohttp, requests as rq, threading, json, sys, os
+from datetime import datetime
+from dateutil.relativedelta import relativedelta
+
 
 from dihlibs import cron_logger as logger
 from dihlibs import functions as fn
@@ -9,7 +12,7 @@ class DHIS:
         self._log = logger.get_logger_message_only()
         self._log.info(f"initiating connections dhis ... ")
         self.__conf = conf
-        self._mapping_file = conf.get('mapping_excel')
+        self._mapping_file = conf.get("mapping_excel")
         self.base_url = conf.get("dhis_url")
         self.orgs = self._get_org_units()
         self.combos = self._get_category_combos()
@@ -23,6 +26,7 @@ class DHIS:
         c = re.sub(r"(\d+)\D*(trimester).*", r"\1_\2", c)
         c = re.sub(r"(\W*,\W*|\Wand\W)", ",", c)
         c = re.sub(r"(\W*to\W*|\s+|\-)", "_", c)
+        c = re.sub(r"_{2,}", "_", c)
         return ",".join(sorted([x.strip() for x in c.split(",") if x]))
 
     def _get_datasets(self):
@@ -36,10 +40,11 @@ class DHIS:
             .unique()
             .tolist()
         )
-        url = f"{self.base_url}/api/dataSets?fields=id,name&filter=id:in:[{dataset_ids}]&paging=false"
+        url = f"{self.base_url}/api/dataSets?fields=id,name,periodType&filter=id:in:[{dataset_ids}]&paging=false"
         # with open(".cache/dataSets.json",'w') as file:
         # json.dump(rq.get(url).json()["dataSets"],file,indent=2)
-        return pd.DataFrame(rq.get(url).json()["dataSets"])
+        ds = pd.DataFrame(rq.get(url).json()["dataSets"])
+        return ds.rename(columns={"periodType": "period_type"})
 
     def _get_category_combos(self):
         if "category_option_combos" in self._mapping_file.sheet_names:
@@ -154,14 +159,29 @@ class DHIS:
         output["dataSet"] = output.db_column.replace(e_map["dataset_id"])
         output["dataElement"] = output.db_column.replace(e_map["element_id"])
         output["value"] = output.value.astype(int)
+        output["period"] = output.db_column.replace(e_map["period"])
         output = output.drop_duplicates()
         return output
 
+    def _check_for_mapping_issues_before_upload(self, org):
+        required_fields = ["dataSet", "value", "categoryOptionCombo", "dataElement"]
+        x = org[required_fields].isnull().sum()
+        x = x[x > 0].index.tolist()
+        if x:
+            self._log.error( f"Missing required field {x} possible issues with mapping\n")
+
+        df = org.dropna(subset=required_fields)
+        if df.empty:
+            self._log.error(f"No data which has required fields, cannot upload\n")
+        return df
+
     async def upload_org(self, file: str, upload_summary):
         required_fields = ["dataSet", "value", "categoryOptionCombo", "dataElement"]
-        url = self.__conf.get('upload_endpoint',f"{self.base_url}/api/dataValueSets")
+        url = self.__conf.get("upload_endpoint", f"{self.base_url}/api/dataValueSets")
 
-        org = pd.read_csv(file).dropna(subset=required_fields)
+        org = self._check_for_mapping_issues_before_upload(pd.read_csv(file))
+        if org.empty:
+            return
         values = org[required_fields].to_dict(orient="records")
         payload = {
             "orgUnit": org["orgUnit"].iloc[0],
@@ -181,6 +201,45 @@ class DHIS:
         self._log.info(f' Analytics: {resp.get("status")}, {resp.get("message")}')
         return resp.get("status")
 
+    def get_period(self, when, period_type="monthly"):
+        date = datetime.strptime(fn.parse_date(when), "%Y-%m-%d")
+        return (
+            {
+                "monthly": date.strftime("%Y%m"),
+                "weekly": date.strftime("%YW%W"),
+                "yearly": date.strftime("%Y"),
+                "daily": date.strftime("%Y-%m-%d"),
+            }
+        ).get(period_type.lower())
+
+    def period_to_db_date(self, date: str):
+        formats = ["%Y-%m-%d", "%YW%W", "%Y%m", "%Y"]
+        for fmt in formats:
+            try:
+                dt = datetime.strptime(date, fmt)
+                return dt.strftime("%Y-%m-%d")
+            except ValueError:
+                pass
+        raise ValueError("Invalid date format")
+
+    def add_dataset_periods(self, e_map, date: str):
+        def set_period_cols(r):
+            pt = r.period_type.lower().strip()
+            pt = pt.lower().replace("ly", "") if pt != "daily" else "date"
+            col_name = ("issued_" if "referral" in r.db_view else f"reported_") + pt
+
+            db_val = self.period_to_db_date(date)
+            period = self.get_period(date, r.period_type)
+            return col_name, db_val, period
+
+        e_map = e_map.reset_index().merge(
+            self.datasets, left_on="dataset_id", right_on="id"
+        )
+        e_map.loc[:, ["period_column", "period_db", "period"]] = e_map.apply(
+            set_period_cols, axis=1
+        ).to_list()
+        return e_map.set_index("map_key")
+
 
 _log = logger.get_logger_message_only()
 log_lock = asyncio.Lock()
@@ -199,9 +258,9 @@ class UploadSummary:
             _log.error(result)
             self.summary["error"] += 1
 
-    def get_slack_post(self, month: str):
+    def get_slack_post(self, periods: str):
         msg = [
-            f"*JnA DHIS uploaded results for `{month}`*",
+            f"*JnA DHIS uploaded results for `{periods}`*",
             "\n",
             f'Total of {self.summary["error"] + self.summary["success"]} organisation Units were processed and:',
             f"\t\u2022\tSuccess: {self.summary['success']}",

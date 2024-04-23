@@ -22,7 +22,9 @@ setup_nginx() {
 
     #setup certificates
     openssl dhparam --dsaparam -out /etc/ssl/certs/dhparams.pem 2048
-    mv /dih/start/letsencrypt.sh /dih/bin/renew && chmod +x /dih/bin/renew
+    #setup renew command
+    mv /dih/start/letsencrypt.sh /dih/bin/renew && chmod +x /dih/bin/renew &&
+        sed -ri 's:common.sh:/dih/start/common.sh:g' /dih/bin/renew
 
     #renew the letsencrypt certificates
     runuser -u $dih_user -- renew && setup_ssl
