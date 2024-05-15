@@ -3,13 +3,12 @@ import pandas as pd
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy import text
 import re
-from collections import namedtuple
 import dihlibs.functions as fn
 from pathlib import Path
-from dihlibs.dhis.configuration import Configuration
 import pkg_resources as pkg
-import os
+from sqlalchemy.dialects import registry
 
+registry.register("sqlcipher", "dihlibs", "SQLCipherDialect")
 pd.options.display.max_columns = None
 pd.options.display.max_rows = None
 
@@ -17,21 +16,26 @@ pd.options.display.max_rows = None
 class DB:
     def __init__(
         self,
-        postgres_url="",
+        connection_url="",
         ssh_command: str = None,
         conf: dict = None,
         connection_file: str = None,
     ):
-        self.connection_string = postgres_url
+        self.connection_string = connection_url
         self.ssh_command = ssh_command
-        self._connect_with_dict_or_file(conf,connection_file)
-
+        self._connect_with_dict_or_file(conf, connection_file)
         self.engine = create_engine(self.connection_string)
         self.Session = sessionmaker(bind=self.engine)
 
-    def _connect_with_dict_or_file(self,conf, filename ):
+    def testCipher(self):
+        engine = create_engine(self.connection_string)
+        connection = engine.connect()
+        print(connection.execute(text("select * from visits")).fetchall())
+        connection.close()
+
+    def _connect_with_dict_or_file(self, conf, filename):
         def action(x):
-            if isinstance(x,dict) and (db := x.get("db")):
+            if isinstance(x, dict) and (db := x.get("db")):
                 self.ssh_command = db.get("ssh")
                 self.connection_string = db.get("url")
             return x
@@ -48,10 +52,10 @@ class DB:
         func = sql_func if sql_func is not None else self.tables
         with self.open_ssh(key_file) as con:
             con.wait(ssh_wait)
-            results=func(*args, **kwargs)
+            results = func(*args, **kwargs)
         self.engine.dispose()
         return results
-         
+
     def exec(self, query, params=None):
         with self.Session() as session:
             try:
@@ -65,14 +69,14 @@ class DB:
         return pd.read_sql_query(text(query), self.engine, params=params)
 
     def squery(self, query, params=None):
-        return self.ssh_run(self.query,query,params)
+        return self.ssh_run(self.query, query, params)
 
     def file(self, filename, params=None):
         with open(filename, "r") as file:
             return self.query(file.read(), params)
 
     def sfile(self, filename, params=None):
-        return self.ssh_run(self.file,filename,params)
+        return self.ssh_run(self.file, filename, params)
 
     def tables(self, schema="public"):
         query = f"SELECT table_name FROM information_schema.tables WHERE table_schema = '{schema}'"
@@ -88,13 +92,13 @@ class DB:
 
     def view(self, view_name):
         return self.query(
-            "SELECT definition FROM pg_views WHERE viewname = '{view_name}'"
+            f"SELECT definition FROM pg_views WHERE viewname = '{view_name}'"
         )
 
     def select_part_matview(self, sql_file):
         sql = fn.text(sql_file)
         regex = r"create mater[^\(]*\(([^;]+)\)"
-        select= re.findall(regex, sql, re.MULTILINE | re.IGNORECASE)
+        select = re.findall(regex, sql, re.MULTILINE | re.IGNORECASE)
         return select[0] if select else sql
 
     def quote_columns_names(self, names):

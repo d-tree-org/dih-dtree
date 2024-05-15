@@ -2,7 +2,7 @@ from setuptools import setup, find_packages
 
 setup(
     name="dihlibs",
-    version="0.0.31",
+    version="0.0.35",
     author="Nitu",
     author_email="nkataraia@d-tree.org",
     description="A helper package for data integrations",
@@ -17,7 +17,10 @@ setup(
             "data/describe_table.sql",
             "data/df_update_table.sql",
             "data/docker/backend.zip",
-            "data/docker/cronies.zip"
+            "data/docker/cronies.zip",
+            "data/dhis_templates/category_options.json",
+            "data/dhis_templates/data_element.json",
+            "data/dhis_templates/data_set.json"
         ],
     },
     classifiers=[
