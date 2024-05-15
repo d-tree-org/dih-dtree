@@ -8,7 +8,6 @@ from pathlib import Path
 import pkg_resources as pkg
 from sqlalchemy.dialects import registry
 
-registry.register("sqlcipher", "dihlibs", "SQLCipherDialect")
 pd.options.display.max_columns = None
 pd.options.display.max_rows = None
 
@@ -124,3 +123,5 @@ class DB:
             values=",\n".join(values),
         )
         return self.exec(sql)
+
+registry.register("sqlcipher", "dihlibs.SQLCipherDialect", "SQLCipherDialect")
