@@ -10,7 +10,8 @@ class Meta:
 
     def __init__(self,dhis_url:str,map:pd.DataFrame) -> None:
         self._map=map.rename(columns={"element_id":"id","short_name":"shortName"})
-        self._map=self._map[self._map.selection.isin['new','update']].copy().reset_index(drop=True)
+        self._map=self._map[self._map.selection.isin(['new','update'])].copy().reset_index(drop=True)
+        sys.exit(0)
         self._base_url=dhis_url
         self._map['description']=''
 
