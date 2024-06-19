@@ -5,6 +5,7 @@ from dateutil.relativedelta import relativedelta
 
 from dihlibs import cron_logger as logger
 from dihlibs import functions as fn
+from dihlibs.functions import NumpyEncoder 
 
 
 class DHIS:
@@ -32,7 +33,8 @@ class DHIS:
     def _get_datasets(self):
         if os.path.exists(".cache/dataSets.json"):
             with open(".cache/dataSets.json", "r") as file:
-                return pd.DataFrame(json.load(file))
+                ds = pd.DataFrame(json.load(file)["dataSets"])
+                return ds.rename(columns={"periodType": "period_type"})
 
         dataset_ids = ",".join(
             pd.read_excel(self._mapping_file, "data_elements")
@@ -48,7 +50,7 @@ class DHIS:
 
     def _get_category_combos(self):
         if "category_option_combos" in self._mapping_file.sheet_names:
-            cmb = pd.read_excel(self._mapping_file, "category_option_combos").dropna()
+            cmb = pd.read_excel(self._mapping_file, "category_option_combos").dropna(subset='disaggregation_value')
         else:
             url = f"{self.base_url}/api/categoryOptionCombos?paging=false&fields=id,displayName~rename(disaggregationValue),categoryCombo[id,displayName]"
             cmb = pd.json_normalize(rq.get(url).json()["categoryOptionCombos"]).rename(
@@ -138,9 +140,8 @@ class DHIS:
             matches = s[s.location.apply(lambda y: x.issubset(y))]
             return matches.orgUnit.values[0] if matches.size > 0 else pd.NA
 
-        loc = [
-            x for x in data.columns if x in self.__conf.get("location_levels").keys()
-        ]
+        loc_types = self.__conf.get("location_levels").keys()
+        loc = [ x for x in data.columns if x in loc_types]
         data["location"] = data[loc].apply(self.__prep_key, axis=1)
         data["orgUnit"] = data.location.map(find_matching)
         return data
@@ -160,7 +161,6 @@ class DHIS:
         output["dataElement"] = output.db_column.replace(e_map["element_id"])
         output["value"] = output.value.astype(int)
         output["period"] = output.db_column.replace(e_map["period"])
-        output = output.drop_duplicates()
         return output
 
     def _check_for_mapping_issues_before_upload(self, org):
@@ -185,11 +185,12 @@ class DHIS:
         values = org[required_fields].to_dict(orient="records")
         payload = {
             "orgUnit": org["orgUnit"].iloc[0],
-            "period": org["period"].iloc[0],
+            "period": str(org["period"].iloc[0]),
             "completeData": True,
             "overwrite": True,
             "dataValues": values,
         }
+        fn.text('mambo.json',json.dumps(payload,indent=2,cls=NumpyEncoder))
         rs = await fn.post(url, payload)
         upload_summary.add(rs)
 
@@ -228,10 +229,9 @@ class DHIS:
             pt = pt.lower().replace("ly", "") if pt != "daily" else "date"
             col_name = ("issued_" if "referral" in r.db_view else f"reported_") + pt
 
-            db_val = self.period_to_db_date(date)
             period = self.get_period(date, r.period_type)
+            db_val = self.period_to_db_date(period)
             return col_name, db_val, period
-
         e_map = e_map.reset_index().merge(
             self.datasets, left_on="dataset_id", right_on="id"
         )

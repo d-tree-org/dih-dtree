@@ -10,7 +10,7 @@ setup_tomcat() {
 
     echo 'setting up tomcat'
     mkdir -p /opt/tomcat/ && cd /opt/tomcat
-    url="https://dlcdn.apache.org/tomcat/tomcat-${tomcat_version:-9}"
+    url="https://archive.apache.org/dist/tomcat/tomcat-${tomcat_version:-9}"
     version=$(curl "$url/" -L 2>/dev/null | grep -Po '>v\K[^></]+' | sort | tail -1)
     wget -O apache-tomcat.tar.gz --progress=dot:giga "$url/v$version/bin/apache-tomcat-$version.tar.gz"
     tar xfz apache*.tar.gz && mv apache-tomcat*/* /opt/tomcat/.

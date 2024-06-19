@@ -13,7 +13,7 @@ class _Command:
     def __init__(self, cmd, bg=True):
         # bash_functions=Path(__file__).parent / "bash/script.sh"
         bash_functions = pkg_resources.resource_filename('dihlibs', 'data/bash/script.sh')
-        self.cmd = f'.  {bash_functions}  && {cmd.strip()}'
+        self.cmd = f'. $HOME/.bashrc && .  {bash_functions}  && {cmd.strip()}'
         self.bg = bg
         self.executor = ThreadPoolExecutor(max_workers=2)
         self.shell = Popen(self.cmd, stdin=PIPE,stdout=PIPE, stderr=PIPE, shell=True, executable="/bin/bash")

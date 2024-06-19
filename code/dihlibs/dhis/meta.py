@@ -2,6 +2,7 @@ import pandas as pd,sys,re,json
 import requests as rq
 import pkg_resources as pkg
 from dihlibs import drive as gd,cron_logger as logger
+from dihlibs import functions as fn
 
 log=logger.get_logger_message_only()
 
@@ -9,6 +10,7 @@ class Meta:
 
     def __init__(self,dhis_url:str,map:pd.DataFrame) -> None:
         self._map=map.rename(columns={"element_id":"id","short_name":"shortName"})
+        self._map=self._map[self._map.selection.isin['new','update']].copy().reset_index(drop=True)
         self._base_url=dhis_url
         self._map['description']=''
 
@@ -16,11 +18,12 @@ class Meta:
         file = pkg.resource_filename("dihlibs", "data/dhis_templates/data_element.json")
         template=pd.read_json(file,orient='records')
         template=template[[x for x in template.columns if x not in self._map.columns]]
-        new=self._map[self._map.selection=='new'][['name','shortName','description','id']].dropna(subset=['name','shortName'])
+        new=self._map[['name','shortName','description','id']].dropna(subset=['name','shortName'])
 
         new=new.merge(template,how='cross').fillna('').to_dict(orient='records')
+        fn.text('payload.json',json.dumps(new,indent=2))
         res= rq.post(f'{self._base_url}/api/metadata',json={"dataElements":new})
-        return res.json()
+        return res.json(); 
 
     def _normalize_combo(self, input):
         c = input.lower().strip()
@@ -38,10 +41,7 @@ class Meta:
         clean=lambda input:','.join(sorted(re.split(r'(?:\s+)?(?:,|and)(?:\s+)?',input))).replace(' ','_').lower()
         combos['comboName']=combos.comboName.apply(self._normalize_combo)
         self._map['comboName']=self._map.disaggregation.fillna('default').apply(self._normalize_combo)
-        n= self._map.merge(combos,how='left',on='comboName')
-        self._map.to_csv('selfmap.csv')
-        combos.to_csv('nselfmap.csv')
-        return n
+        return self._map.merge(combos,how='left',on='comboName')
 
     def update_dataset(self):
         datasets=[]

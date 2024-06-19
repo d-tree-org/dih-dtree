@@ -2,10 +2,11 @@ from sqlalchemy import create_engine, text
 import pandas as pd
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy import text
-import re
+import re,os
 import dihlibs.functions as fn
 from pathlib import Path
 import pkg_resources as pkg
+from dihlibs.node import Node
 from sqlalchemy.dialects import registry
 
 pd.options.display.max_columns = None
@@ -19,26 +20,30 @@ class DB:
         ssh_command: str = None,
         conf: dict = None,
         connection_file: str = None,
+        rc: str = None,
     ):
         self.connection_string = connection_url
         self.ssh_command = ssh_command
-        self._connect_with_dict_or_file(conf, connection_file)
+        self._connect_with_dict_or_file(conf, connection_file,rc)
         self.engine = create_engine(self.connection_string)
         self.Session = sessionmaker(bind=self.engine)
 
     def testCipher(self):
         engine = create_engine(self.connection_string)
         connection = engine.connect()
-        print(connection.execute(text("select * from visits")).fetchall())
         connection.close()
 
-    def _connect_with_dict_or_file(self, conf, filename):
+    def _connect_with_dict_or_file(self, conf, filename,resource):
         def action(x):
-            if isinstance(x, dict) and (db := x.get("db")):
-                self.ssh_command = db.get("ssh")
-                self.connection_string = db.get("url")
+            if isinstance(x, dict):
+                db=x.get('db',Node(x).get(f'{resource}.db')) 
+                if db:
+                    self.ssh_command = db.get("ssh")
+                    self.connection_string = db.get("url")
             return x
 
+        home=str(Path.home())
+        filename=filename if filename else f"{home}/.db.yml" if resource else None;
         conf = fn.file_dict(filename) if filename else conf
         return fn.walk(conf, action) if conf else None
 
@@ -49,6 +54,8 @@ class DB:
     def ssh_run(self, sql_func=None, *args, key_file=None, ssh_wait=5, **kwargs):
         key_file = key_file if key_file is not None else f"{Path.home()}/.ssh/id_rsa"
         func = sql_func if sql_func is not None else self.tables
+        if self.ssh_command is None or self.ssh_command.lower() == 'no':
+            return func(*args, **kwargs)
         with self.open_ssh(key_file) as con:
             con.wait(ssh_wait)
             results = func(*args, **kwargs)

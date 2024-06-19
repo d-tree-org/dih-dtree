@@ -6,13 +6,13 @@ from functools import partial
 import argparse
 
 from dihlibs.dhis.meta import Meta
-from dihlibs.node import Node
-from dihlibs.dhis import DHIS, UploadSummary
+from dihlibs.dhis import DHIS
 from dihlibs import functions as fn
 from dihlibs import cron_logger as logger
 from dihlibs import drive as gd
 import pkg_resources as pkr
 import shlex, shutil, tempfile, yaml
+from sys import exit
 
 
 class Configuration:
@@ -50,8 +50,6 @@ class Configuration:
         if args.get("action"):
             return args
 
-        file = args.get("config-file")
-        folder = file.replace(".zip.enc", "")
         self.conf = args
         conf = self._get_conf(args)
         c = conf["cronies"]

@@ -1,22 +1,20 @@
-import json, collections, re
+import json, re
 import time
 import secrets
-from concurrent.futures import ThreadPoolExecutor
 import concurrent.futures
 from typing import Callable, Any
-from subprocess import Popen, PIPE
 from datetime import datetime
 from dateutil.relativedelta import relativedelta
 from collections import namedtuple
 import numpy as np
-import asyncio, aiohttp, requests
-import argparse
+import asyncio, aiohttp
 import yaml
 import string
 import os
 import select
 from dihlibs.command import _Command
 from collections import deque
+from fuzzywuzzy import fuzz
 
 
 DONE = object()
@@ -296,3 +294,25 @@ def get(_obj, field, defaultValue=None):
         except (KeyError, IndexError, ValueError):
             return defaultValue
     return obj
+
+def millisec_to_date(ms):
+    if( isinstance(ms,str)):
+        ms=int(ms)
+    if ms:
+        return datetime.fromtimestamp(ms / 1000.0).strftime('%Y-%m-%d %H:%M:%S')
+
+def fuzzy_match(left_df,right_df,left_keys=[],right_keys=[],method="0"):
+    lkey=",".join(left_keys);
+    left_df.loc[:,lkey]=left_df[left_keys].apply(lambda row:",".join(row.values),axis=1)
+    rkey=",".join(right_keys);
+    right_df.loc[:,rkey]=right_df[right_keys].apply(lambda row:",".join(row.values),axis=1)
+
+    methods=[ fuzz.token_set_ratio ,fuzz.token_sort_ratio ,fuzz.partial_token_set_ratio ,fuzz.partial_token_sort_ratio,fuzz.ratio]
+    match=left_df[lkey].apply(lambda x:right_df[rkey].apply(lambda y: methods[int(method)](x,y)))
+    left_df['match']=match.max(axis=1)
+
+    rcolumns=right_df.columns.map(lambda r:"r:"+r)
+    left_df[rcolumns]=right_df.loc[match.idxmax(axis=1)].values
+    left_df.loc[left_df[lkey].isna(),rcolumns]=''
+
+    return left_df.sort_values('match',ascending=False).drop(columns=[rkey,lkey]).reset_index(drop=True)

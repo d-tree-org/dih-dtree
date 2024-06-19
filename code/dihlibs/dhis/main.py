@@ -89,6 +89,7 @@ def _process_downloaded_data(dhis: DHIS):
         df = df.dropna(subset=m.period_column)
         df["period"] = m.period
         df = dhis.add_category_combos_id(df)
+        df = df.dropna(subset=["categoryOptionCombo"])
         df = dhis.add_org_unit_id(df)
         df = df.dropna(subset=["orgUnit"])
         df = _add_tablename_columns(m.db_view, df)
