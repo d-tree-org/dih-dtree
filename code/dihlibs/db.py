@@ -131,4 +131,4 @@ class DB:
         )
         return self.exec(sql)
 
-registry.register("sqlcipher", "dihlibs.SQLCipherDialect", "SQLCipherDialect")
+# registry.register("sqlcipher", "dihlibs.SQLCipherDialect", "SQLCipherDialect")

@@ -2,7 +2,7 @@ from setuptools import setup, find_packages
 
 setup(
     name="dihlibs",
-    version="0.0.38",
+    version="0.0.43",
     author="Nitu",
     author_email="nkataraia@d-tree.org",
     description="A helper package for data integrations",
@@ -36,13 +36,16 @@ setup(
         "openpyxl",
         "SQLAlchemy",
         "psycopg2-binary",
-        "pysqlcipher3",
+        # "pysqlcipher3",
         "google-api-python-client",
         "google-auth-httplib2",
         "google-auth-oauthlib",
         "oauth2client",
         "aiohttp",
         "pyyaml",
+        "fuzzywuzzy",
+        "setuptools",
+        "python-Levenshtein",
     ],
     entry_points={
         "console_scripts": [

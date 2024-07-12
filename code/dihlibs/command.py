@@ -1,8 +1,6 @@
 from concurrent.futures import ThreadPoolExecutor
 import concurrent.futures
-from typing import Callable, Any
 from subprocess import Popen, PIPE
-import select,os
 from pathlib import Path
 import pkg_resources
 import dihlibs.functions as fn
@@ -11,7 +9,6 @@ import dihlibs.functions as fn
 
 class _Command:
     def __init__(self, cmd, bg=True):
-        # bash_functions=Path(__file__).parent / "bash/script.sh"
         bash_functions = pkg_resources.resource_filename('dihlibs', 'data/bash/script.sh')
         self.cmd = f'. $HOME/.bashrc && .  {bash_functions}  && {cmd.strip()}'
         self.bg = bg

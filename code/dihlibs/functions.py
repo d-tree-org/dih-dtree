@@ -7,11 +7,7 @@ from datetime import datetime
 from dateutil.relativedelta import relativedelta
 from collections import namedtuple
 import numpy as np
-import asyncio, aiohttp
-import yaml
-import string
-import os
-import select
+import asyncio, aiohttp, yaml, string, os, hashlib, select
 from dihlibs.command import _Command
 from collections import deque
 from fuzzywuzzy import fuzz
@@ -316,3 +312,14 @@ def fuzzy_match(left_df,right_df,left_keys=[],right_keys=[],method="0"):
     left_df.loc[left_df[lkey].isna(),rcolumns]=''
 
     return left_df.sort_values('match',ascending=False).drop(columns=[rkey,lkey]).reset_index(drop=True)
+
+
+def uuid_from_hash(input_string):
+    if not isinstance(input_string, str):
+        raise ValueError("Input must be a string")
+    hash = hashlib.sha256(input_string.encode()).hexdigest()
+    hash = hash[:12] + '4' + hash[13:]
+    variant_char = (int(hash[16], 16) & 0x3) | 0x8
+    hash = hash[:16] + format(variant_char, 'x') + hash[17:]
+    uuid = f'{hash[:8]}-{hash[8:12]}-{hash[12:16]}-{hash[16:20]}-{hash[20:32]}'
+    return uuid

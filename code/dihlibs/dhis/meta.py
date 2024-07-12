@@ -38,7 +38,7 @@ class Meta:
     def add_category_combo(self):
         res=rq.get(f"{self._base_url}/api/categoryCombos?paging=false&fields=id~rename(categoryCombo),name~rename(comboName)").json()
         combos=pd.DataFrame(res.get('categoryCombos'))
-        clean=lambda input:','.join(sorted(re.split(r'(?:\s+)?(?:,|and)(?:\s+)?',input))).replace(' ','_').lower()
+        # clean=lambda input:','.join(sorted(re.split(r'(?:\s+)?(?:,|and)(?:\s+)?',input))).replace(' ','_').lower()
         combos['comboName']=combos.comboName.apply(self._normalize_combo)
         self._map['comboName']=self._map.disaggregation.fillna('default').apply(self._normalize_combo)
         return self._map.merge(combos,how='left',on='comboName')

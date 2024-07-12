@@ -213,11 +213,17 @@ class DHIS:
             }
         ).get(period_type.lower())
 
+    def get_week_date(self,date): 
+        parts = date.split("W")
+        week_start = 7 * int(parts[1])
+        year_start = datetime.strptime(parts[0], "%Y")
+        return year_start +  relativedelta(days=abs(week_start))
+
     def period_to_db_date(self, date: str):
         formats = ["%Y-%m-%d", "%YW%W", "%Y%m", "%Y"]
         for fmt in formats:
             try:
-                dt = datetime.strptime(date, fmt)
+                dt = datetime.strptime(date, fmt) if "W" not in date else self.get_week_date(date)
                 return dt.strftime("%Y-%m-%d")
             except ValueError:
                 pass
@@ -235,6 +241,7 @@ class DHIS:
         e_map = e_map.reset_index().merge(
             self.datasets, left_on="dataset_id", right_on="id"
         )
+        
         e_map.loc[:, ["period_column", "period_db", "period"]] = e_map.apply(
             set_period_cols, axis=1
         ).to_list()
