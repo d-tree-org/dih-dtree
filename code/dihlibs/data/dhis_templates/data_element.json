@@ -1,0 +1,22 @@
+[{
+  "id": "{id}",
+  "name": "{name}",
+  "shortName": "{short_name}",
+  "aggregationType": "SUM",
+  "domainType": "AGGREGATE",
+  "publicAccess": "rw------",
+  "externalAccess": false,
+  "valueType": "INTEGER_ZERO_OR_POSITIVE",
+  "zeroIsSignificant": true,
+  "favorite": false,
+  "dimensionItemType": "DATA_ELEMENT",
+  "optionSetValue": false,
+  "access": {
+    "read": true,
+    "update": true,
+    "externalize": true,
+    "delete": true,
+    "write": true,
+    "manage": true
+  }
+}]

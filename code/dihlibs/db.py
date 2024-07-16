@@ -110,6 +110,9 @@ class DB:
     def quote_columns_names(self, names):
         return [f'"{n}"' if " " in n else n for n in names]
 
+    def ssh_upate_table_df(self, df, tablename, id_column="id"):
+        return self.ssh_run( self.upate_table_df,df,tablename,id_column)
+
     def upate_table_df(self, df, tablename, id_column="id"):
         db_columns = self.quote_columns_names(df.columns)
         columns = ",".join(db_columns)

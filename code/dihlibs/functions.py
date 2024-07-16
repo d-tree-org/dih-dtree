@@ -83,13 +83,13 @@ def to_namedtuple(obj: dict):
     return walk(obj, change)
 
 def get_month(delta):
-    ve = 1 if delta > 0 else -1
-    x = datetime.today() + ve * relativedelta(months=abs(delta))
+    sign = 1 if delta > 0 else -1
+    x = datetime.today() + sign * relativedelta(months=abs(delta))
     return x.replace(day=1).strftime("%Y-%m-01")
     
 def days_delta(delta):
-    ve = 1 if delta > 0 else -1
-    x = datetime.today() + ve * relativedelta(days=abs(delta))
+    sign = 1 if delta > 0 else -1
+    x = datetime.today() + sign * relativedelta(days=abs(delta))
     return x.strftime(r"%Y-%m-%d")
 
 def file_binary(file_name):
