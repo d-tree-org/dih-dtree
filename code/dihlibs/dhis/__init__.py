@@ -213,11 +213,15 @@ class DHIS:
             }
         ).get(period_type.lower())
 
-    def get_week_date(self,date): 
+    def get_week_date(self,date):
         parts = date.split("W")
-        week_start = 7 * int(parts[1])
-        year_start = datetime.strptime(parts[0], "%Y")
-        return year_start +  relativedelta(days=abs(week_start))
+        year = int(parts[0])
+        week = int(parts[1])
+        year_start = datetime(year, 1, 1)
+        week_start = year_start + relativedelta(weeks=week-1)
+        while week_start.weekday() != 0:  # 0 means Monday
+            week_start += relativedelta(days=1)
+        return week_start
 
     def period_to_db_date(self, date: str):
         formats = ["%Y-%m-%d", "%YW%W", "%Y%m", "%Y"]
