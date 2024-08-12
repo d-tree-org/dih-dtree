@@ -299,9 +299,9 @@ def millisec_to_date(ms):
 
 def fuzzy_match(left_df,right_df,left_keys=[],right_keys=[],method="0"):
     lkey=",".join(left_keys);
-    left_df.loc[:,lkey]=left_df[left_keys].apply(lambda row:",".join(row.values),axis=1)
+    left_df.loc[:,lkey]=left_df[left_keys].fillna('').apply(lambda row:",".join(row.values),axis=1)
     rkey=",".join(right_keys);
-    right_df.loc[:,rkey]=right_df[right_keys].apply(lambda row:",".join(row.values),axis=1)
+    right_df.loc[:,rkey]=right_df[right_keys].fillna('').apply(lambda row:",".join(row.values),axis=1)
 
     methods=[ fuzz.token_set_ratio ,fuzz.token_sort_ratio ,fuzz.partial_token_set_ratio ,fuzz.partial_token_sort_ratio,fuzz.ratio]
     match=left_df[lkey].apply(lambda x:right_df[rkey].apply(lambda y: methods[int(method)](x,y)))
@@ -311,7 +311,7 @@ def fuzzy_match(left_df,right_df,left_keys=[],right_keys=[],method="0"):
     left_df[rcolumns]=right_df.loc[match.idxmax(axis=1)].values
     left_df.loc[left_df[lkey].isna(),rcolumns]=''
 
-    return left_df.sort_values('match',ascending=False).drop(columns=[rkey,lkey]).reset_index(drop=True)
+    return left_df.sort_values('match',ascending=False).drop(columns=["r:"+rkey,lkey]).reset_index(drop=True)
 
 
 def uuid_from_hash(input_string):
@@ -323,3 +323,6 @@ def uuid_from_hash(input_string):
     hash = hash[:16] + format(variant_char, 'x') + hash[17:]
     uuid = f'{hash[:8]}-{hash[8:12]}-{hash[12:16]}-{hash[16:20]}-{hash[20:32]}'
     return uuid
+
+def flattern_jsonb(df_column):
+    return df_column.map(json.loads).map(flattern).tolist()

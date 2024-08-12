@@ -55,8 +55,10 @@ class Configuration:
         c = conf["cronies"]
         c["action"] = args.get("action")
         c["country"] = conf["country"]
-        # c["ssh"] = c.get("tunnel_ssh", "echo No ssh command")
-        c["date"] = fn.parse_date(args.get("date", fn.days_delta(-1)))
+        if args.get("date") is not None:
+            c["date"] = fn.parse_date(args.get("date"))
+        else:
+            c["date"] = None
         c["selection"] = args.get("selection")
         c["task_dir"] = os.path.basename(os.getcwd())
         c["config-file"] = args.get("config-file")

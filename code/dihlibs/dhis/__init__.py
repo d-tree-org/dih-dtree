@@ -201,9 +201,23 @@ class DHIS:
         resp = rq.post(f"{self.base_url}/api/resourceTables/analytics").json()
         self._log.info(f' Analytics: {resp.get("status")}, {resp.get("message")}')
         return resp.get("status")
+    
+    def get_default_date(self,period_type='monthly'):
+        return datetime.today() - (
+            {
+                "monthly": relativedelta(months=1) ,
+                "weekly": relativedelta(weeks=1) ,
+                "yearly": relativedelta(years=1) ,
+                "daily": relativedelta(days=1)
+            }
+        ).get(period_type.lower())
 
     def get_period(self, when, period_type="monthly"):
-        date = datetime.strptime(fn.parse_date(when), "%Y-%m-%d")
+        if  when is None:
+            date = self.get_default_date(period_type)
+        else: 
+            date = datetime.strptime(fn.parse_date(when), "%Y-%m-%d")
+
         return (
             {
                 "monthly": date.strftime("%Y%m"),
@@ -212,6 +226,7 @@ class DHIS:
                 "daily": date.strftime("%Y-%m-%d"),
             }
         ).get(period_type.lower())
+
 
     def get_week_date(self,date):
         parts = date.split("W")
