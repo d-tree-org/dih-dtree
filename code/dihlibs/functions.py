@@ -1,5 +1,4 @@
-import json, re
-import time
+import time, re, json
 import secrets
 import concurrent.futures
 from typing import Callable, Any
@@ -11,9 +10,11 @@ import asyncio, aiohttp, yaml, string, os, hashlib, select
 from dihlibs.command import _Command
 from collections import deque
 from fuzzywuzzy import fuzz
+from datetime import datetime, timedelta
 
 
 DONE = object()
+
 
 def run_cmd(cmd, bg=True):
     return _Command(cmd, bg)
@@ -73,6 +74,7 @@ def get_config(config_file="/dih/common/configs/${proj}.json"):
     c["tunnel_ssh"] = c.get("tunnel_ssh", "echo not opening ssh-tunnel")
     return c
 
+
 def to_namedtuple(obj: dict):
     def change(item):
         if isinstance(item, dict):
@@ -82,31 +84,36 @@ def to_namedtuple(obj: dict):
 
     return walk(obj, change)
 
+
 def get_month(delta):
     sign = 1 if delta > 0 else -1
     x = datetime.today() + sign * relativedelta(months=abs(delta))
     return x.replace(day=1).strftime("%Y-%m-01")
-    
+
+
 def days_delta(delta):
     sign = 1 if delta > 0 else -1
     x = datetime.today() + sign * relativedelta(days=abs(delta))
     return x.strftime(r"%Y-%m-%d")
 
+
 def file_binary(file_name):
     with open(file_name, "rb") as file:
         return file.read()
 
-def text(filename,text=None,mode='w'):
+
+def text(filename, text=None, mode="w"):
     if text is None:
-        with open(filename,mode='r') as file:
-            return file.read() 
-    with open(filename,mode) as file:
+        with open(filename, mode="r") as file:
+            return file.read()
+    with open(filename, mode) as file:
         file.write(text)
 
 
 def lines_to_file(file_name, lines: list, mode="w"):
     data = "\n".join(lines)
     text(file_name, data)
+
 
 def parse_month(date: str):
     formats = ["%Y%m", "%Y%m%d", "%d%m%Y", "%m%Y"]
@@ -211,18 +218,39 @@ def bfs(graph, root, got_node):
     results = []
     while queue:
         node, path = queue.popleft()
-        if node.node_id in visited:
+        if node.id in visited:
             continue
         elif (rs := got_node(path, node)) is DONE:
             return results
         elif rs is not None:
             results.append(rs)
 
-        visited.add(node.node_id)
-        for child in graph.get(node.node_id, []):
+        visited.add(node.id)
+        for child in graph.get(node.id, []):
             queue.append((child, path + [node]))
     return results
 
+
+def dfs(graph, root, got_node):
+    stack = [(root, [])]
+    visited = set()
+    results = []
+
+    while stack:
+        node, path = stack.pop()
+
+        if node.id in visited:
+            continue
+        elif (rs := got_node(path, node)) is DONE:
+            return results
+        elif rs is not None:
+            results.append(rs)
+
+        visited.add(node.id)
+
+        for child in graph.get(node.id, []):
+            stack.append((child, path + [node]))
+    return results
 
 def to_snake_case(s):
     return re.sub(r"([a-z0-9])([A-Z])|[\s_-]+", r"\1_\2", s).lower()
@@ -291,38 +319,91 @@ def get(_obj, field, defaultValue=None):
             return defaultValue
     return obj
 
+
 def millisec_to_date(ms):
-    if( isinstance(ms,str)):
-        ms=int(ms)
+    if isinstance(ms, str):
+        ms = int(ms)
     if ms:
-        return datetime.fromtimestamp(ms / 1000.0).strftime('%Y-%m-%d %H:%M:%S')
+        return datetime.fromtimestamp(ms / 1000.0).strftime("%Y-%m-%d %H:%M:%S")
 
-def fuzzy_match(left_df,right_df,left_keys=[],right_keys=[],method="0"):
-    lkey=",".join(left_keys);
-    left_df.loc[:,lkey]=left_df[left_keys].fillna('').apply(lambda row:",".join(row.values),axis=1)
-    rkey=",".join(right_keys);
-    right_df.loc[:,rkey]=right_df[right_keys].fillna('').apply(lambda row:",".join(row.values),axis=1)
 
-    methods=[ fuzz.token_set_ratio ,fuzz.token_sort_ratio ,fuzz.partial_token_set_ratio ,fuzz.partial_token_sort_ratio,fuzz.ratio]
-    match=left_df[lkey].apply(lambda x:right_df[rkey].apply(lambda y: methods[int(method)](x,y)))
-    left_df['match']=match.max(axis=1)
+def fuzzy_match(left_df, right_df, left_keys=[], right_keys=[], method="0"):
+    lkey = ",".join(left_keys)
+    left_df.loc[:, lkey] = (
+        left_df[left_keys].fillna("").apply(lambda row: ",".join(row.values), axis=1)
+    )
+    rkey = ",".join(right_keys)
+    right_df.loc[:, rkey] = (
+        right_df[right_keys].fillna("").apply(lambda row: ",".join(row.values), axis=1)
+    )
 
-    rcolumns=right_df.columns.map(lambda r:"r:"+r)
-    left_df[rcolumns]=right_df.loc[match.idxmax(axis=1)].values
-    left_df.loc[left_df[lkey].isna(),rcolumns]=''
+    methods = [
+        fuzz.token_set_ratio,
+        fuzz.token_sort_ratio,
+        fuzz.partial_token_set_ratio,
+        fuzz.partial_token_sort_ratio,
+        fuzz.ratio,
+    ]
+    match = left_df[lkey].apply(
+        lambda x: right_df[rkey].apply(lambda y: methods[int(method)](x, y))
+    )
+    left_df["match"] = match.max(axis=1)
 
-    return left_df.sort_values('match',ascending=False).drop(columns=["r:"+rkey,lkey]).reset_index(drop=True)
+    rcolumns = right_df.columns.map(lambda r: "r:" + r)
+    left_df[rcolumns] = right_df.loc[match.idxmax(axis=1)].values
+    left_df.loc[left_df[lkey].isna(), rcolumns] = ""
+
+    return (
+        left_df.sort_values("match", ascending=False)
+        .drop(columns=["r:" + rkey, lkey])
+        .reset_index(drop=True)
+    )
 
 
 def uuid_from_hash(input_string):
     if not isinstance(input_string, str):
         raise ValueError("Input must be a string")
     hash = hashlib.sha256(input_string.encode()).hexdigest()
-    hash = hash[:12] + '4' + hash[13:]
+    hash = hash[:12] + "4" + hash[13:]
     variant_char = (int(hash[16], 16) & 0x3) | 0x8
-    hash = hash[:16] + format(variant_char, 'x') + hash[17:]
-    uuid = f'{hash[:8]}-{hash[8:12]}-{hash[12:16]}-{hash[16:20]}-{hash[20:32]}'
+    hash = hash[:16] + format(variant_char, "x") + hash[17:]
+    uuid = f"{hash[:8]}-{hash[8:12]}-{hash[12:16]}-{hash[16:20]}-{hash[20:32]}"
     return uuid
+
 
 def flattern_jsonb(df_column):
     return df_column.map(json.loads).map(flattern).tolist()
+
+
+def is_null(*args):
+    is_nan = lambda x: (
+        np.isnan(x) or np.isinf(x) if isinstance(x, (float, int)) else False
+    )
+    return any(x is None or is_nan(x) for x in args)
+
+
+def no_null(*args):
+    return not is_null(*args)
+
+
+def generate_dates(start_date, end_date, interval_type="months", interval_value=1):
+    # Parse the input dates
+    start = datetime.strptime(start_date, "%Y-%m-%d")
+    end = datetime.strptime(end_date, "%Y-%m-%d")
+    # Create a list to store the intervals
+    intervals = []
+    # Define a dictionary to map interval types to their corresponding functions
+    interval_mapping = {
+        "days": lambda date, value: date + timedelta(days=value),
+        "weeks": lambda date, value: date + timedelta(weeks=value),
+        "months": lambda date, value: date + relativedelta(months=value),
+        "years": lambda date, value: date + relativedelta(years=value),
+    }
+    # Ensure the interval type is valid
+    while start <= end:
+        # Format the date as YYYYMMDD
+        interval_str = start.strftime("%Y-%m-%d")
+        intervals.append(interval_str)
+        # Increment the start date using the appropriate function
+        start = interval_mapping[interval_type](start, interval_value)
+    return intervals

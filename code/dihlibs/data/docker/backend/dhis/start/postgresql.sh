@@ -3,7 +3,7 @@
 source common.sh
 base='/dih'
 setup_postgresql() {
-    apt-get install -y netcat postgresql postgis postgresql-contrib --fix-missing
+    apt-get update && apt-get install -y netcat postgresql postgis postgresql-contrib --fix-missing
     pg_version=$(pg_lsclusters | grep -v missing | grep -Eo '^[0-9]*' | head -1)
     sed -ir "s/{version}/$pg_version/g" $base/conf/postgresql.conf
     mv $base/conf/postgresql.conf /etc/postgresql/$pg_version/main/postgresql.conf

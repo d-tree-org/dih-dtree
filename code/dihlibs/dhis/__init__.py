@@ -7,7 +7,6 @@ from dihlibs import cron_logger as logger
 from dihlibs import functions as fn
 from dihlibs.functions import NumpyEncoder 
 
-
 class DHIS:
     def __init__(self, conf):
         self._log = logger.get_logger_message_only()
@@ -97,7 +96,7 @@ class DHIS:
         elif isinstance(value, pd.Series):
             return {self.__prep_key(x) for x in value.values}
         elif isinstance(value, str):
-            return re.sub(r"\W+", "", value)
+            return re.sub(r"\W+", "", value).lower()
         else:
             return value
 
@@ -139,7 +138,8 @@ class DHIS:
             s = self.orgs[self.orgs.name_key.isin(x)]
             matches = s[s.location.apply(lambda y: x.issubset(y))]
             return matches.orgUnit.values[0] if matches.size > 0 else pd.NA
-
+        
+        data=data.copy()
         loc_types = self.__conf.get("location_levels").keys()
         loc = [ x for x in data.columns if x in loc_types]
         data["location"] = data[loc].apply(self.__prep_key, axis=1)
@@ -149,13 +149,14 @@ class DHIS:
     def to_data_values(self, data: pd.DataFrame, e_map: pd.DataFrame):
         id_vars = ["orgUnit", "categoryOptionCombo", "period"]
         value_vars = [col for col in data.columns if col in e_map.index]
+        # data.loc[:,value_vars]=data[value_vars].fillna(0)
         output = pd.melt(
             data,
             id_vars=id_vars,
             value_vars=value_vars,
             var_name="db_column",
             value_name="value",
-        ).dropna(subset=["value"])
+        ).dropna(subset='value')
         output = output[pd.to_numeric(output.value, errors="coerce").notna()]
         output["dataSet"] = output.db_column.replace(e_map["dataset_id"])
         output["dataElement"] = output.db_column.replace(e_map["element_id"])

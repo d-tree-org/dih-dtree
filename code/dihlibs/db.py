@@ -110,17 +110,31 @@ class DB:
     def quote_columns_names(self, names):
         return [f'"{n}"' if " " in n else n for n in names]
 
-    def ssh_upate_table_df(self, df, tablename, id_column="id"):
-        return self.ssh_run( self.upate_table_df,df,tablename,id_column)
+    def ssh_upate_table_df(self, df, tablename, id_column="id",on_conflict=""):
+        return self.ssh_run( self.upate_table_df,df,tablename,id_column,on_conflict)
 
-    def upate_table_df(self, df, tablename, id_column="id"):
+    def _format_value(self, value, dtype):
+        if pd.isna(value):  # Handle NaN values
+            return "NULL"
+        elif pd.api.types.is_numeric_dtype(dtype):
+            return str(value)
+        elif pd.api.types.is_datetime64_any_dtype(dtype):
+            return f"'{value.strftime('%Y-%m-%d %H:%M:%S')}'::TIMESTAMP"
+        else:  # Default to string
+            v=str(value).replace("'", "''");
+            return f"'{v}'"
+
+    def upate_table_df(self, df, tablename, id_column="id",on_conflict=''):
+        df=df.copy()
         db_columns = self.quote_columns_names(df.columns)
         columns = ",".join(db_columns)
         update_columns = ",".join([f"temp.{c}" for c in db_columns])
         set_columns = ",\n".join([f"{c}=temp.{c}" for c in db_columns])
 
-        value = lambda row: "','".join(map(lambda e: str(e).replace("'", "''"), row))
-        values = [f"('{value(row)}')" for row in df.values]
+        # Create SQL values string with proper formatting
+        for c, dtype in zip(df.columns, df.dtypes):
+            df[c] = df[c].apply(lambda v: self._format_value(v, dtype))
+        values = df.apply(lambda r: f"({','.join(map(str, r.values))})", axis=1)
 
         sql_file = pkg.resource_filename("dihlibs", "data/df_update_table.sql")
         sql = Path(sql_file).read_text()
@@ -131,7 +145,8 @@ class DB:
             update_columns=update_columns,
             id_column=id_column,
             values=",\n".join(values),
+            on_conflict=on_conflict,
         )
         return self.exec(sql)
 
-# registry.register("sqlcipher", "dihlibs.SQLCipherDialect", "SQLCipherDialect")
+    # registry.register("sqlcipher", "dihlibs.SQLCipherDialect", "SQLCipherDialect")
