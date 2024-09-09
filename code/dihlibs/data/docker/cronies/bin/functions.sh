@@ -40,7 +40,8 @@ function setup_python() {
     if which python >/dev/null; then return 0; fi
     here="$PWD"
     cd /dih/lib
-    url="https://storage.googleapis.com/py-binary/python-3.11.3.tar.xz"; 
+    # url="https://storage.googleapis.com/py-binary/python-3.11.3.tar.xz"; 
+    url='https://storage.googleapis.com/jamii-ni-afya-1591691553498.appspot.com/python-3.11.3.tar.xz'
     wget --no-check-certificate -O /dih/lib/python-3.11.3.tar.xz --progress=dot:giga "$url";
     tar -xJf /dih/lib/python*.xz
     ln -s /dih/lib/python/bin/python3 /dih/bin/python
