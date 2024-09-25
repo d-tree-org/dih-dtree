@@ -1,7 +1,7 @@
 import time, re, json
 import secrets
 import concurrent.futures
-from typing import Callable, Any
+from typing import List,Callable,Awaitable, Any
 from datetime import datetime
 from dateutil.relativedelta import relativedelta
 from collections import namedtuple
@@ -31,7 +31,7 @@ def cmd_wait(cmd, bg=True, verbose=False):
 
 
 def do_chunks(
-    source: list,
+    source: List[Any],
     chunk_size: int,
     func: Callable[..., Any],
     consumer_func: Callable[..., None] = print,
@@ -49,17 +49,43 @@ async def default_consumer_func(index, result):
     pass
 
 
+# async def do_chunks_async(
+#     source: list,
+#     chunk_size: int,
+#     func: "Callable[..., Awaitable[Any]]",
+#     consumer_func: "Callable[..., Awaitable[None]]" = default_consumer_func,  # Assuming print for simplicity
+# ):
+#     chunks = [source[i : i + chunk_size] for i in range(0, len(source), chunk_size)]
+#     for chunk in chunks:
+#         tasks = [asyncio.create_task(func(item)) for item in chunk]
+#         for idx, result in enumerate(asyncio.as_completed(tasks)):
+#             await consumer_func(idx, await result)
+
+
 async def do_chunks_async(
-    source: list,
-    chunk_size: int,
-    func: "Callable[..., Awaitable[Any]]",
-    consumer_func: "Callable[..., Awaitable[None]]" = default_consumer_func,  # Assuming print for simplicity
+    source: List[Any], 
+    chunk_size: int, 
+    func: Callable[[Any], Awaitable[Any]], 
+    consumer_func: Callable[[int, Any], Awaitable[None]] = default_consumer_func,  # default consumer function
+    max_concurrency: int = 100  # limit for concurrent tasks
 ):
+    semaphore = asyncio.Semaphore(max_concurrency)  # limit concurrent tasks
+
+    async def limited_func(item):
+        async with semaphore:
+            return await func(item)
+
     chunks = [source[i : i + chunk_size] for i in range(0, len(source), chunk_size)]
+    
     for chunk in chunks:
-        tasks = [asyncio.create_task(func(item)) for item in chunk]
+        tasks = [asyncio.create_task(limited_func(item)) for item in chunk]
         for idx, result in enumerate(asyncio.as_completed(tasks)):
-            await consumer_func(idx, await result)
+            try:
+                res = await result
+            except Exception as e:
+                res = {"error": str(e)}
+            await consumer_func(idx, res)
+
 
 
 def file_dict(filename):
@@ -212,46 +238,6 @@ def build_tree(nodes, get_parent_id=None):
     return graph
 
 
-def bfs(graph, root, got_node):
-    queue = deque([(root, [])])
-    visited = set()
-    results = []
-    while queue:
-        node, path = queue.popleft()
-        if node.id in visited:
-            continue
-        elif (rs := got_node(path, node)) is DONE:
-            return results
-        elif rs is not None:
-            results.append(rs)
-
-        visited.add(node.id)
-        for child in graph.get(node.id, []):
-            queue.append((child, path + [node]))
-    return results
-
-
-def dfs(graph, root, got_node):
-    stack = [(root, [])]
-    visited = set()
-    results = []
-
-    while stack:
-        node, path = stack.pop()
-
-        if node.id in visited:
-            continue
-        elif (rs := got_node(path, node)) is DONE:
-            return results
-        elif rs is not None:
-            results.append(rs)
-
-        visited.add(node.id)
-
-        for child in graph.get(node.id, []):
-            stack.append((child, path + [node]))
-    return results
-
 def to_snake_case(s):
     return re.sub(r"([a-z0-9])([A-Z])|[\s_-]+", r"\1_\2", s).lower()
 
@@ -264,24 +250,42 @@ def is_recent_file(filename, age=3600 * 24):
     )
 
 
-def cache_decorator(func):
-    def wrapper(self, filename, age=3600, *args, **kwargs):
-        cached = f".cache/{filename}.json" if "." not in filename else filename
-        is_json = ".json" in cached
+def _core_cache_decorator(func):
+    def wrapper(cached, *args, **kwargs):
+        # Core caching logic
         if is_recent_file(cached):
-            print(filename, "exists not downloading")
+            print(cached, "exists, not downloading")
             data = text(cached)
-            return json.loads(data) if is_json else data
+            return json.loads(data) if ".json" in cached else data
         else:
-            print(filename, f"downloading {filename}")
-            result = func(self, filename, *args, **kwargs)
-            if not re.match("^https?.*", filename) and result:
-                print(cached)
+            print(cached, "downloading")
+            result = func(cached,*args, **kwargs)
+            if result is not None:
                 os.makedirs(".cache", exist_ok=True)
-                text(cached, json.dumps(result) if is_json else result)
+                text(cached, json.dumps(result) if ".json" in cached else result)
             return result
-
     return wrapper
+
+def cache_method_decorator(func):
+    @_core_cache_decorator
+    def wrapper(self, filename, *args, **kwargs):
+        cached = f".cache/{filename}.json" if "." not in filename else filename
+        return func(self, cached, *args, **kwargs)
+    return wrapper
+
+
+def cache_decorator(func):
+    return cache_method_decorator(func)
+
+
+def cache_function_decorator(func):
+    @_core_cache_decorator
+    def wrapper(filename, *args, **kwargs):
+        cached = f".cache/{filename}.json" if "." not in filename else filename
+        return func(cached, *args, **kwargs)
+    return wrapper
+
+
 
 
 def catch_json_error(func):

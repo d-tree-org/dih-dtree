@@ -110,8 +110,8 @@ class Graph:
             if root.id in visited:
                 continue
             res = self.dfs_post_order(root, lambda _, x: x,visited)
-            res = [n for n in res if n.id not in visited]
             results = results + res
+            res = [n for n in res if n.id not in visited]
             for n in res:
                 visited.add(n.id)
         return results

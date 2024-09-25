@@ -57,12 +57,16 @@ class DB:
         if self.ssh_command is None or self.ssh_command.lower() == 'no':
             return func(*args, **kwargs)
         with self.open_ssh(key_file) as con:
-            con.wait(ssh_wait)
-            results = func(*args, **kwargs)
+            try:
+                con.wait(ssh_wait)
+                results = func(*args, **kwargs)
+            except Exception as e:
+                print(f"Error executing query: {e}")
         self.engine.dispose()
         return results
 
     def exec(self, query, params=None):
+        query = self._bind(query)
         with self.Session() as session:
             try:
                 session.execute(text(query), params)
@@ -71,7 +75,19 @@ class DB:
                 session.rollback()
                 print(f"Error executing query: {e}")
 
+    def sExecFile(self, filename, params=None):
+        with open(filename,'r') as file:
+            return self.ssh_run(self.exec,file.read(),params)
+            
+    def _bind(self,sql,params=None):
+        if params is None:
+            return sql
+        for key in params:
+           sql=re.sub(f"'\[\s*{key}\s*]'",f" :{key}",sql) 
+        return sql
+    
     def query(self, query, params=None):
+        query = self._bind(query,params)
         return pd.read_sql_query(text(query), self.engine, params=params)
 
     def squery(self, query, params=None):
