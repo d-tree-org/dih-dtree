@@ -67,7 +67,7 @@ async def do_chunks_async(
     chunk_size: int, 
     func: Callable[[Any], Awaitable[Any]], 
     consumer_func: Callable[[int, Any], Awaitable[None]] = default_consumer_func,  # default consumer function
-    max_concurrency: int = 100  # limit for concurrent tasks
+    max_concurrency: int = 10  # limit for concurrent tasks
 ):
     semaphore = asyncio.Semaphore(max_concurrency)  # limit concurrent tasks
 
@@ -284,8 +284,6 @@ def cache_function_decorator(func):
         cached = f".cache/{filename}.json" if "." not in filename else filename
         return func(cached, *args, **kwargs)
     return wrapper
-
-
 
 
 def catch_json_error(func):

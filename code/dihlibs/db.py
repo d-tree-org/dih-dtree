@@ -62,6 +62,7 @@ class DB:
                 results = func(*args, **kwargs)
             except Exception as e:
                 print(f"Error executing query: {e}")
+                results=None
         self.engine.dispose()
         return results
 
