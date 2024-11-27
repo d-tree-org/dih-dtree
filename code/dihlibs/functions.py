@@ -2,7 +2,7 @@ import time, re, json
 import secrets
 import concurrent.futures
 from typing import List,Callable,Awaitable, Any
-from datetime import datetime
+from datetime import datetime,timezone
 from dateutil.relativedelta import relativedelta
 from collections import namedtuple
 import numpy as np
@@ -11,6 +11,7 @@ from dihlibs.command import _Command
 from collections import deque
 from fuzzywuzzy import fuzz
 from datetime import datetime, timedelta
+import jwt
 
 
 DONE = object()
@@ -47,19 +48,6 @@ def do_chunks(
 
 async def default_consumer_func(index, result):
     pass
-
-
-# async def do_chunks_async(
-#     source: list,
-#     chunk_size: int,
-#     func: "Callable[..., Awaitable[Any]]",
-#     consumer_func: "Callable[..., Awaitable[None]]" = default_consumer_func,  # Assuming print for simplicity
-# ):
-#     chunks = [source[i : i + chunk_size] for i in range(0, len(source), chunk_size)]
-#     for chunk in chunks:
-#         tasks = [asyncio.create_task(func(item)) for item in chunk]
-#         for idx, result in enumerate(asyncio.as_completed(tasks)):
-#             await consumer_func(idx, await result)
 
 
 async def do_chunks_async(
@@ -310,7 +298,6 @@ def walk(element, action):
     else:
         return action(element)
 
-
 def get(_obj, field, defaultValue=None):
     """Retrieves a nested value with dot and array index support."""
     obj = _obj
@@ -373,8 +360,9 @@ def uuid_from_hash(input_string):
     return uuid
 
 
-def flattern_jsonb(df_column):
-    return df_column.map(json.loads).map(flattern).tolist()
+def flattern_jsonb(df_column,sep='.'):
+    _flattern = lambda s:flattern(s,sep)
+    return df_column.map(json.loads).map(_flattern).tolist()
 
 
 def is_null(*args):
@@ -387,6 +375,8 @@ def is_null(*args):
 def no_null(*args):
     return not is_null(*args)
 
+def coalesce(*args):
+    return next((x for x in args if no_null(x)), None)
 
 def generate_dates(start_date, end_date, interval_type="months", interval_value=1):
     # Parse the input dates
@@ -409,3 +399,23 @@ def generate_dates(start_date, end_date, interval_type="months", interval_value=
         # Increment the start date using the appropriate function
         start = interval_mapping[interval_type](start, interval_value)
     return intervals
+
+
+def generate_token(secret_key,lifespan_mins,tz=timezone(timedelta(hours=3))):
+    return jwt.encode(
+        {"exp": datetime.now(tz) + timedelta(minutes=lifespan_mins)},
+        secret_key,
+        algorithm="HS256",
+    )
+
+def has_expired(token,secret_key,lifespan_mins=10,tz=timezone(timedelta(hours=3))):
+    try:
+        decoded = jwt.decode(token, secret_key, algorithms=["HS256"])
+        remaining_time = datetime.fromtimestamp(decoded["exp"], tz) - datetime.now(tz)
+        return remaining_time < timedelta(minutes=lifespan_mins * 0.05) 
+    except (jwt.ExpiredSignatureError, jwt.InvalidTokenError):
+        return None
+
+def refresh_token(token,secret_key,lifespan_mins=5,tz=timezone(timedelta(hours=3))):
+    still_active=has_expired(token,secret_key,lifespan_mins,tz)
+    return token if still_active else generate_token(secret_key,tz) if still_active is False else None

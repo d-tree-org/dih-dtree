@@ -2,11 +2,12 @@ from sqlalchemy import create_engine, text
 import pandas as pd
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy import text
-import re,os
+import re,os,json
 import dihlibs.functions as fn
 from pathlib import Path
 import pkg_resources as pkg
 from dihlibs.node import Node
+from dihlibs.graph import Graph
 from sqlalchemy.dialects import registry
 
 pd.options.display.max_columns = None
@@ -70,8 +71,9 @@ class DB:
         query = self._bind(query)
         with self.Session() as session:
             try:
-                session.execute(text(query), params)
+                rs=session.execute(text(query), params)
                 session.commit()
+                return rs.rowcount
             except Exception as e:
                 session.rollback()
                 print(f"Error executing query: {e}")
@@ -137,6 +139,8 @@ class DB:
             return str(value)
         elif pd.api.types.is_datetime64_any_dtype(dtype):
             return f"'{value.strftime('%Y-%m-%d %H:%M:%S')}'::TIMESTAMP"
+        elif isinstance(value,(list,dict)):
+            return f"'{json.dumps(value)}'::JSONB"
         else:  # Default to string
             v=str(value).replace("'", "''");
             return f"'{v}'"
@@ -165,5 +169,26 @@ class DB:
             on_conflict=on_conflict,
         )
         return self.exec(sql)
+
+    def refresh_matviews(self,schema=["public"]):
+        sql=pkg.resource_string("dihlibs", "data/matview_dependencies.sql").decode('utf-8').format(schema="','".join(schema))
+        df=self.squery(sql)
+        df.loc[df.matview_name==df.depends_on,'depends_on']=None
+        dc=df[df.view_schema.isin(schema)]
+        dt=dc[['matview_name','depends_on']].copy()
+
+        graph=Graph(dt.values.tolist(),lambda x:x)
+        x=graph.topological_sort()
+        x=[y.value for y in  x]
+
+        def refresh_matview():
+            for m in x:
+                schema=df[df.matview_name==m].view_schema.unique()[0]
+                self.exec(f'refresh materialized view {schema}.{m}')
+                print(f'refreshed materialized view {schema}.{m}')
+                if m=='chw_p4p':
+                    return;
+
+        self.ssh_run(refresh_matview)
 
     # registry.register("sqlcipher", "dihlibs.SQLCipherDialect", "SQLCipherDialect")

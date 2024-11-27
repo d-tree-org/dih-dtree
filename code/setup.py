@@ -2,7 +2,7 @@ from setuptools import setup, find_packages
 
 setup(
     name="dihlibs",
-    version="0.0.49",
+    version="0.0.50",
     author="Nitu",
     author_email="nkataraia@d-tree.org",
     description="A helper package for data integrations",
@@ -37,6 +37,7 @@ setup(
         "SQLAlchemy",
         "psycopg2-binary",
         # "pysqlcipher3",
+        "pyjwt",
         "google-api-python-client",
         "google-auth-httplib2",
         "google-auth-oauthlib",
