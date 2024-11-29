@@ -80,7 +80,6 @@ class DB:
 
             
     def _bind(self,sql,params=None):
-        print(params)
         if params is None:
             return sql
         for key in params:

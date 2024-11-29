@@ -1,4 +1,5 @@
 import time, re, json
+from base64 import b64encode
 import secrets
 import concurrent.futures
 from typing import List,Callable,Awaitable, Any
@@ -419,3 +420,7 @@ def has_expired(token,secret_key,lifespan_mins=10,tz=timezone(timedelta(hours=3)
 def refresh_token(token,secret_key,lifespan_mins=5,tz=timezone(timedelta(hours=3))):
     still_active=has_expired(token,secret_key,lifespan_mins,tz)
     return token if still_active else generate_token(secret_key,tz) if still_active is False else None
+
+def basic_auth(username, password):
+    token = b64encode(f"{username}:{password}".encode('utf-8')).decode("ascii")
+    return f'Basic {token}'
