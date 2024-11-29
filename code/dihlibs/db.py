@@ -52,7 +52,7 @@ class DB:
         cmd = self.ssh_command + f" -i {key_file}"
         return fn.run_cmd(cmd)
 
-    def ssh_run(self, sql_func=None, *args, key_file=None, ssh_wait=5, **kwargs):
+    def ssh_run(self, sql_func, *args, key_file=None, ssh_wait=5, **kwargs):
         key_file = key_file if key_file is not None else f"{Path.home()}/.ssh/id_rsa"
         func = sql_func if sql_func is not None else self.tables
         if self.ssh_command is None or self.ssh_command.lower() == 'no':
@@ -78,11 +78,9 @@ class DB:
                 session.rollback()
                 print(f"Error executing query: {e}")
 
-    def sExecFile(self, filename, params=None):
-        with open(filename,'r') as file:
-            return self.ssh_run(self.exec,file.read(),params)
             
     def _bind(self,sql,params=None):
+        print(params)
         if params is None:
             return sql
         for key in params:
@@ -93,15 +91,12 @@ class DB:
         query = self._bind(query,params)
         return pd.read_sql_query(text(query), self.engine, params=params)
 
-    def squery(self, query, params=None):
-        return self.ssh_run(self.query, query, params)
 
-    def file(self, filename, params=None):
+    def file(self, filename, params=None,exec=False):
+        func=self.query if not exec else self.exec 
         with open(filename, "r") as file:
-            return self.query(file.read(), params)
+            return func(file.read(), params) 
 
-    def sfile(self, filename, params=None):
-        return self.ssh_run(self.file, filename, params)
 
     def tables(self, schema="public"):
         query = f"SELECT table_name FROM information_schema.tables WHERE table_schema = '{schema}'"
@@ -190,5 +185,23 @@ class DB:
                     return;
 
         self.ssh_run(refresh_matview)
+
+
+    @property
+    def secure(self):
+        class SecureProxy:
+            def __init__(self, instance):
+                self._instance = instance
+
+            def __getattr__(self, name):
+                method = getattr(self._instance, name)
+                if callable(method):
+                    # Wrap the method to pass through ssh_run
+                    def wrapped(*args, **kwargs):
+                        return self._instance.ssh_run(method,*args,**kwargs)
+                    return wrapped
+                return method
+
+        return SecureProxy(self)
 
     # registry.register("sqlcipher", "dihlibs.SQLCipherDialect", "SQLCipherDialect")
