@@ -83,7 +83,7 @@ class DB:
         if params is None:
             return sql
         for key in params:
-           sql=re.sub(f"'\[\s*{key}\s*]'",f" :{key}",sql) 
+           sql=re.sub(rf"'\[\s*{key}\s*]'",f" :{key}",sql) 
         return sql
     
     def query(self, query, params=None):
@@ -166,7 +166,7 @@ class DB:
 
     def refresh_matviews(self,schema=["public"]):
         sql=pkg.resource_string("dihlibs", "data/matview_dependencies.sql").decode('utf-8').format(schema="','".join(schema))
-        df=self.squery(sql)
+        df=self.secure.query(sql)
         df.loc[df.matview_name==df.depends_on,'depends_on']=None
         dc=df[df.view_schema.isin(schema)]
         dt=dc[['matview_name','depends_on']].copy()

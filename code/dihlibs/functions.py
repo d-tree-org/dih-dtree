@@ -13,6 +13,7 @@ from collections import deque
 from fuzzywuzzy import fuzz
 from datetime import datetime, timedelta
 import jwt
+import pandas as pd
 
 
 DONE = object()
@@ -80,6 +81,33 @@ async def do_chunks_async(
 def file_dict(filename):
     with open(filename) as file:
         return json.load(file) if ".json" in filename else yaml.safe_load(file)
+
+def load_file_data(file_name):
+    _, ext = os.path.splitext(file_name)
+    ext = ext.lower()
+    text_loaders = {
+        ".json": json.load,
+        ".yaml": yaml.safe_load,
+        ".yml": yaml.safe_load,
+        ".jsonl": lambda f: [json.loads(line) for line in f],
+    }
+    # Loaders that use pandas directly
+    pandas_loaders = {
+        ".csv": pd.read_csv,
+        ".xls": pd.read_excel,
+        ".xlsx": pd.read_excel,
+        ".ods": lambda f: pd.read_excel(f, engine="odf"),
+        ".parquet": pd.read_parquet,
+    }
+    if ext in text_loaders:
+        with open(file_name, "r", encoding="utf-8") as file:
+            return text_loaders[ext](file)
+    elif ext in pandas_loaders:
+        return pandas_loaders[ext](file_name).to_dict(orient="records")
+    else:
+        supported = ", ".join(list(text_loaders.keys()) + list(pandas_loaders.keys()))
+        error = f"Unsupported file extension '{ext}'. Supported: {supported}"
+        raise ValueError(error)
 
 
 def get_config(config_file="/dih/common/configs/${proj}.json"):
