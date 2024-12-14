@@ -134,7 +134,7 @@ class DB:
         elif pd.api.types.is_datetime64_any_dtype(dtype):
             return f"'{value.strftime('%Y-%m-%d %H:%M:%S')}'::TIMESTAMP"
         elif isinstance(value,(list,dict)):
-            return f"'{json.dumps(value).replace("'","''")}'::JSONB"
+            return f"""'{json.dumps(value).replace("'","''")}'::JSONB"""
         else:  # Default to string
             v=str(value).replace("'", "''");
             return f"'{v}'"
