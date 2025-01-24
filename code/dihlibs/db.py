@@ -37,7 +37,8 @@ class DB:
     def _connect_with_dict_or_file(self, conf, filename,resource):
         def action(x):
             if isinstance(x, dict):
-                db=x.get('db',Node(x).get(f'{resource}.db')) 
+                nx=Node(x)
+                db=nx.get(f'{resource}.db') if resource else nx.get('db')
                 if db:
                     self.ssh_command = db.get("ssh")
                     self.connection_string = db.get("url")
