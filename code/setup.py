@@ -2,7 +2,7 @@ from setuptools import setup, find_packages
 
 setup(
     name="dihlibs",
-    version="0.0.57",
+    version="0.0.58",
     author="Nitu",
     author_email="nkataraia@d-tree.org",
     description="A helper package for data integrations",
