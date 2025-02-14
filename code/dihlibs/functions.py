@@ -437,6 +437,15 @@ def generate_token(secret_key,lifespan_mins,tz=timezone(timedelta(hours=3))):
         algorithm="HS256",
     )
 
+def has_expired_client_side(access_token,tz=timezone(timedelta(hours=3))):
+    try:
+        payload = jwt.decode(access_token, options={"verify_signature": False})
+        exp_timestamp = payload.get("exp", 0)
+        exp_time=datetime.fromtimestamp(exp_timestamp,tz=tz)
+        return exp_time < datetime.now(tz=tz)
+    except jwt.DecodeError:
+        return True  
+
 def has_expired(token,secret_key,lifespan_mins=10,tz=timezone(timedelta(hours=3))):
     try:
         decoded = jwt.decode(token, secret_key, algorithms=["HS256"])
