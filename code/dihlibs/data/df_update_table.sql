@@ -7,7 +7,8 @@ UPDATE {tablename} AS u_table
 SET 
     {set_columns}
 FROM temp
-WHERE u_table.{id_column}=temp.{id_column} ;
+WHERE {id_condition};
+
 WITH temp AS (
     SELECT * FROM ( VALUES
      {values}
@@ -16,6 +17,6 @@ WITH temp AS (
 INSERT INTO {tablename} ({columns})
 SELECT {update_columns} 
 FROM temp
-LEFT JOIN {tablename} AS u_table ON u_table.{id_column} = temp.{id_column}
-WHERE u_table.{id_column} IS NULL
+LEFT JOIN {tablename} AS u_table ON {id_condition}
+WHERE {where_clause}
 {on_conflict};

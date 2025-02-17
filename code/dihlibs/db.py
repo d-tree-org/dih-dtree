@@ -91,12 +91,10 @@ class DB:
         query = self._bind(query,params)
         return pd.read_sql_query(text(query), self.engine, params=params)
 
-
     def file(self, filename, params=None,exec=False):
         func=self.query if not exec else self.exec 
         with open(filename, "r") as file:
             return func(file.read(), params) 
-
 
     def tables(self, schema="public"):
         query = f"SELECT table_name FROM information_schema.tables WHERE table_schema = '{schema}'"
@@ -128,8 +126,15 @@ class DB:
         return self.ssh_run( self.upate_table_df,df,tablename,id_column,on_conflict)
 
     def _format_value(self, value, dtype):
-        if pd.isna(value):  # Handle NaN values
-            return "NULL"
+        if pd.isna(value):  # Handle NaN or None values
+            if pd.api.types.is_numeric_dtype(dtype):
+                return "NULL::NUMERIC"
+            elif pd.api.types.is_datetime64_any_dtype(dtype):
+                return "NULL::TIMESTAMP"
+            elif isinstance(dtype, str) and dtype.lower() == "jsonb":
+                return "NULL::JSONB"
+            else:
+                return "NULL"
         elif pd.api.types.is_numeric_dtype(dtype):
             return str(value)
         elif pd.api.types.is_datetime64_any_dtype(dtype):
@@ -140,14 +145,22 @@ class DB:
             v=str(value).replace("'", "''");
             return f"'{v}'"
 
-    def upate_table_df(self, df, tablename, id_column="id",on_conflict=''):
-        df=df.copy()
+    def update_table_df(self, df, tablename, id_columns, on_conflict=''):
+        df = df.copy()
         db_columns = self.quote_columns_names(df.columns)
         columns = ",".join(db_columns)
         update_columns = ",".join([f"temp.{c}" for c in db_columns])
         set_columns = ",\n".join([f"{c}=temp.{c}" for c in db_columns])
 
-        # Create SQL values string with proper formatting
+        # Ensure id_columns is a list
+        if isinstance(id_columns, str):
+            id_columns = [id_columns]
+
+        # Create SQL condition for multiple ID columns
+        id_condition = " AND ".join([f"u_table.{col}=temp.{col}" for col in id_columns])
+        where_clause = " AND ".join([f"u_table.{col} IS NULL" for col in id_columns])
+
+        # Format values properly
         for c, dtype in zip(df.columns, df.dtypes):
             df[c] = df[c].apply(lambda v: self._format_value(v, dtype))
         values = df.apply(lambda r: f"({','.join(map(str, r.values))})", axis=1)
@@ -159,11 +172,13 @@ class DB:
             columns=columns,
             set_columns=set_columns,
             update_columns=update_columns,
-            id_column=id_column,
+            id_condition=id_condition,
+            where_clause=where_clause,
             values=",\n".join(values),
             on_conflict=on_conflict,
         )
         return self.exec(sql)
+
 
     def refresh_matviews(self,schema=["public"]):
         sql=pkg.resource_string("dihlibs", "data/matview_dependencies.sql").decode('utf-8').format(schema="','".join(schema))
@@ -183,7 +198,6 @@ class DB:
                 print(f'refreshed materialized view {schema}.{m}')
                 if m=='chw_p4p':
                     return;
-
         self.ssh_run(refresh_matview)
 
 

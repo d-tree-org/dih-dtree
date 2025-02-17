@@ -8,7 +8,7 @@ class SupersetAPI:
     def __init__(self, rc, file=".secret.yml"):
         self.file = file
         self.rc = rc
-        self.headers = { "Content-Type": "application/json"}
+        self.headers = {}
         self.access_token = None
         self.url = None
 
@@ -105,6 +105,8 @@ class SupersetAPI:
             return self.import_dashboards(
                 import_file="cp_dashboards.zip", passwords=passwords
             )
+        else:
+            print(res.text)
 
     def get_chart_data(self, dataset_id,columns, filters):
         payload = {
@@ -115,3 +117,12 @@ class SupersetAPI:
         }
         return self.post("/api/v1/chart/data", json=payload)
 
+    # def copy_chart_to_table():
+    #     try:
+    #         a = sa.get_chart_data(166,columns=['chw_name','visits','registrations',"ward",'event_date','region','provider_id'],filters=filters )
+    #         df=pd.read_csv(StringIO(a.text))
+    #         df['event_date']=pd.to_datetime(df.event_date,format="%Y-%m-%d")
+    #         x=db.secure.update_table_df(df=df,tablename='ucs.chw_performance',id_columns=['provider_id','event_date'])
+    #         print(x)
+    #     except Exception as e:
+    #         print(e)
