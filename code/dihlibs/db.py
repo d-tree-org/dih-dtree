@@ -13,7 +13,6 @@ from sqlalchemy.dialects import registry
 pd.options.display.max_columns = None
 pd.options.display.max_rows = None
 
-
 class DB:
     def __init__(
         self,
@@ -50,11 +49,16 @@ class DB:
         return fn.walk(conf, action) if conf else None
 
     def open_ssh(self, key_file):
-        cmd = self.ssh_command + f" -i {key_file}"
-        return fn.run_cmd(cmd)
+        if  os.path.isfile(key_file):
+            return fn.run_cmd( f"{self.ssh_command} -i {key_file}")
+        elif os.path.isdir(key_file):
+            key_files = os.listdir(key_file)
+            opt = " ".join(f" -i {key_file}/{f}" for f in key_files if not re.match(r'(.*(\Wpub|known|config).*)',f))
+            return fn.run_cmd(self.ssh_command + ' ' + opt)
+        else:
+            raise FileNotFoundError(f'Key file or directory not found: {key_file}')
 
-    def ssh_run(self, sql_func, *args, key_file=None, ssh_wait=5, **kwargs):
-        key_file = key_file if key_file is not None else f"{Path.home()}/.ssh/id_rsa"
+    def ssh_run(self, sql_func, *args, key_file=f'{Path.home()}/.ssh', ssh_wait=5, **kwargs):
         func = sql_func if sql_func is not None else self.tables
         if self.ssh_command is None or self.ssh_command.lower() == 'no':
             return func(*args, **kwargs)
@@ -196,13 +200,13 @@ class DB:
                 schema=df[df.matview_name==m].view_schema.unique()[0]
                 self.exec(f'refresh materialized view {schema}.{m}')
                 print(f'refreshed materialized view {schema}.{m}')
-                if m=='chw_p4p':
+                if m == 'chw_p4p':
                     return;
         self.ssh_run(refresh_matview)
 
 
     @property
-    def secure(self):
+    def secure(self)->'DB':
         class SecureProxy:
             def __init__(self, instance):
                 self._instance = instance
@@ -216,6 +220,8 @@ class DB:
                     return wrapped
                 return method
 
+            def __dir__(self):
+                return dir(self._instance)
         return SecureProxy(self)
 
     # registry.register("sqlcipher", "dihlibs.SQLCipherDialect", "SQLCipherDialect")
