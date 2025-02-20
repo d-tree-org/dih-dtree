@@ -10,13 +10,13 @@ import pandas as pd
 
 
 class Drive:
-    def __init__(self, key: dict):
+    def __init__(self, key: dict=None,credentials=None):
         try:
             scope = [
                 "https://www.googleapis.com/auth/drive.file",
                 "https://www.googleapis.com/auth/drive.readonly",
             ]
-            credentials = ServiceAccountCredentials.from_json_keyfile_dict(key, scope)
+            credentials = ServiceAccountCredentials.from_json_keyfile_dict(key, scope) if credentials is None else credentials
             self.drive = build("drive", "v3", credentials=credentials)
         except Exception as e:
             print(e)

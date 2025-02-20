@@ -15,6 +15,7 @@ import tempfile
 
 
 log = None
+
 conf = Configuration()
 
 
@@ -27,7 +28,7 @@ def download_matview_data(views, db: DB):
             matview = f"({sql}) as data_cte "
 
         sql = f"select * from {matview} where {view.period_column}='{view.period_db}'"
-        db.query(sql).to_csv(f".data/views/{view.db_view}:{view.period}.csv")
+        db.query(sql).to_csv(f".data/views/{view.db_view}:{view.period}.csv",index=False)
     return f"Downloaded {view.db_view}"
 
 
@@ -47,7 +48,6 @@ def _download_matview_data(dhis: DHIS):
             thread_count=10,
             key_file=key.name,
         )
-        # e_map.to_csv(f".data/element_map-{month}.csv")
 
 
 def _add_tablename_columns(file_name, df):
@@ -78,12 +78,13 @@ def _process_downloaded_data(dhis: DHIS):
     os.makedirs(f".data/processed/", exist_ok=True)
     e_map = conf.get_element_mappings(dhis)
     clear_old_files(e_map)
+    x=0;
     for _, m in e_map.drop_duplicates(subset="db_view").iterrows():
         file = f".data/views/{m.db_view}:{m.period}.csv"
         if not os.path.isfile(file):
             continue
         log.info(f"    .... processing {file}")
-
+        x=x+1
         df = pd.read_csv(file)
         df = dhis.rename_db_dhis(df)
         df = df.dropna(subset=m.period_column)

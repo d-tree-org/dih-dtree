@@ -7,7 +7,6 @@ from dihlibs import cron_logger as logger
 from dihlibs import functions as fn
 from dihlibs.functions import NumpyEncoder 
 
-
 class DHIS:
     def __init__(self, conf):
         self._log = logger.get_logger_message_only()
@@ -97,7 +96,7 @@ class DHIS:
         elif isinstance(value, pd.Series):
             return {self.__prep_key(x) for x in value.values}
         elif isinstance(value, str):
-            return re.sub(r"\W+", "", value)
+            return re.sub(r"\W+", "", value).lower()
         else:
             return value
 
@@ -139,7 +138,8 @@ class DHIS:
             s = self.orgs[self.orgs.name_key.isin(x)]
             matches = s[s.location.apply(lambda y: x.issubset(y))]
             return matches.orgUnit.values[0] if matches.size > 0 else pd.NA
-
+        
+        data=data.copy()
         loc_types = self.__conf.get("location_levels").keys()
         loc = [ x for x in data.columns if x in loc_types]
         data["location"] = data[loc].apply(self.__prep_key, axis=1)
@@ -149,13 +149,14 @@ class DHIS:
     def to_data_values(self, data: pd.DataFrame, e_map: pd.DataFrame):
         id_vars = ["orgUnit", "categoryOptionCombo", "period"]
         value_vars = [col for col in data.columns if col in e_map.index]
+        # data.loc[:,value_vars]=data[value_vars].fillna(0)
         output = pd.melt(
             data,
             id_vars=id_vars,
             value_vars=value_vars,
             var_name="db_column",
             value_name="value",
-        ).dropna(subset=["value"])
+        ).dropna(subset='value')
         output = output[pd.to_numeric(output.value, errors="coerce").notna()]
         output["dataSet"] = output.db_column.replace(e_map["dataset_id"])
         output["dataElement"] = output.db_column.replace(e_map["element_id"])
@@ -201,9 +202,23 @@ class DHIS:
         resp = rq.post(f"{self.base_url}/api/resourceTables/analytics").json()
         self._log.info(f' Analytics: {resp.get("status")}, {resp.get("message")}')
         return resp.get("status")
+    
+    def get_default_date(self,period_type='monthly'):
+        return datetime.today() - (
+            {
+                "monthly": relativedelta(months=1) ,
+                "weekly": relativedelta(weeks=1) ,
+                "yearly": relativedelta(years=1) ,
+                "daily": relativedelta(days=1)
+            }
+        ).get(period_type.lower())
 
     def get_period(self, when, period_type="monthly"):
-        date = datetime.strptime(fn.parse_date(when), "%Y-%m-%d")
+        if  when is None:
+            date = self.get_default_date(period_type)
+        else: 
+            date = datetime.strptime(fn.parse_date(when), "%Y-%m-%d")
+
         return (
             {
                 "monthly": date.strftime("%Y%m"),
@@ -213,11 +228,22 @@ class DHIS:
             }
         ).get(period_type.lower())
 
+
+    def get_week_date(self,date):
+        parts = date.split("W")
+        year = int(parts[0])
+        week = int(parts[1])
+        year_start = datetime(year, 1, 1)
+        week_start = year_start + relativedelta(weeks=week-1)
+        while week_start.weekday() != 0:  # 0 means Monday
+            week_start += relativedelta(days=1)
+        return week_start
+
     def period_to_db_date(self, date: str):
         formats = ["%Y-%m-%d", "%YW%W", "%Y%m", "%Y"]
         for fmt in formats:
             try:
-                dt = datetime.strptime(date, fmt)
+                dt = datetime.strptime(date, fmt) if "W" not in date else self.get_week_date(date)
                 return dt.strftime("%Y-%m-%d")
             except ValueError:
                 pass
@@ -235,6 +261,7 @@ class DHIS:
         e_map = e_map.reset_index().merge(
             self.datasets, left_on="dataset_id", right_on="id"
         )
+        
         e_map.loc[:, ["period_column", "period_db", "period"]] = e_map.apply(
             set_period_cols, axis=1
         ).to_list()

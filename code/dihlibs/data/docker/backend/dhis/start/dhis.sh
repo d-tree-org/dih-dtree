@@ -6,7 +6,7 @@ setup_tomcat() {
 
     [ -d /opt/tomcat ] && return
 
-    apt-get install -y openjdk-11-jre-headless --fix-missing
+    apt-get update && apt-get install -y openjdk-11-jre-headless --fix-missing
 
     echo 'setting up tomcat'
     mkdir -p /opt/tomcat/ && cd /opt/tomcat
