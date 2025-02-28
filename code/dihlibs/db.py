@@ -9,6 +9,9 @@ import pkg_resources as pkg
 from dihlibs.node import Node
 from dihlibs.graph import Graph
 from sqlalchemy.dialects import registry
+import yaml
+import tempfile
+from dihlibs.fs_secret import encrypt_secret
 
 pd.options.display.max_columns = None
 pd.options.display.max_rows = None
@@ -43,10 +46,10 @@ class DB:
                     self.connection_string = db.get("url")
             return x
 
-        home=str(Path.home())
-        filename=filename if filename else f"{home}/.db.yml" if resource else None;
-        conf = fn.file_dict(filename) if filename else conf
+        filename=filename if filename else "db_connections" if resource else None;
+        conf = fn.load_secret_file(filename) if filename else conf
         return fn.walk(conf, action) if conf else None
+
 
     def open_ssh(self, key_file):
         if  os.path.isfile(key_file):
@@ -223,5 +226,13 @@ class DB:
             def __dir__(self):
                 return dir(self._instance)
         return SecureProxy(self)
+    
+    def save_connection(self,name,ssh_cmd,connection_url,secret_path='db_connections'):
+        conf=fn.load_secret_file(secret_path)
+        conf[name]={'db':{'ssh':ssh_cmd,'url':connection_url}}
+        file=tempfile.gettempdir()+"/db_connections"
+        with open(file,'wb') as sfile:
+            sfile.write(yaml.dump(conf).encode('utf-8'))
+        encrypt_secret(file,overwite=True)
 
     # registry.register("sqlcipher", "dihlibs.SQLCipherDialect", "SQLCipherDialect")
