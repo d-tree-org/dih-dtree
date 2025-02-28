@@ -14,6 +14,7 @@ from fuzzywuzzy import fuzz
 from datetime import datetime, timedelta
 import jwt
 import pandas as pd
+from dihlibs.fs_secret import encrypt_secret,decrypt_secret
 
 
 DONE = object()
@@ -78,9 +79,35 @@ async def do_chunks_async(
 
 
 
+def is_binary(file_path):
+    with open(file_path, "rb") as f:
+        chunk = f.read(1024)  # Read a small part of the file
+    return b"\x00" in chunk or any(byte > 127 for byte in chunk)
+
 def file_dict(filename):
     with open(filename) as file:
         return json.load(file) if ".json" in filename else yaml.safe_load(file)
+
+def load_secret_file(filename):
+    secret=None
+    if os.path.isfile(filename):
+        if is_binary(filename):
+            raise ValueError("File cannot be binary") 
+        encrypt_secret (filename)
+        secret = decrypt_secret(filename).decode('utf-8')
+    else:
+        secret = decrypt_secret(filename).decode('utf-8')
+    if secret:
+        return load_string_data(secret)
+
+def load_string_data(data_str):
+    try:
+        return json.loads(data_str)  # Try JSON first
+    except json.JSONDecodeError:
+        try:
+            return yaml.safe_load(data_str)  # Fall back to YAML
+        except yaml.YAMLError:
+            raise ValueError("Invalid JSON or YAML")
 
 def load_file_data(file_name):
     _, ext = os.path.splitext(file_name)
