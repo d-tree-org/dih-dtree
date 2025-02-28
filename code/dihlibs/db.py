@@ -234,5 +234,7 @@ class DB:
         with open(file,'wb') as sfile:
             sfile.write(yaml.dump(conf).encode('utf-8'))
         encrypt_secret(file,overwite=True)
+        if os.path.isfile(file):
+            os.remove(file)
 
     # registry.register("sqlcipher", "dihlibs.SQLCipherDialect", "SQLCipherDialect")

@@ -5,7 +5,7 @@ import json
 from functools import wraps
 
 class SupersetAPI:
-    def __init__(self, rc, file=".secret.yml"):
+    def __init__(self, rc, file="db_connections"):
         self.file = file
         self.rc = rc
         self.headers = {}
@@ -14,7 +14,7 @@ class SupersetAPI:
 
     def login(self):
         """Logs in to Superset and starts a session."""
-        cred = Node(fn.load_file_data(self.file)).get(self.rc)
+        cred = Node(fn.load_secret_file(self.file)).get(self.rc)
         self.url = cred.get("url").strip("/")
         payload = {
             "username": cred.get("username"),
