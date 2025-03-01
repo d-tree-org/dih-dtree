@@ -108,13 +108,14 @@ class SupersetAPI:
         else:
             print(res.text)
 
-    def get_chart_data(self, dataset_id,columns, filters):
+    def get_chart_data(self, dataset_id,columns, filters, extras=None):
         payload = {
-            "queries": [{ "columns":columns, "filters":filters} ],
+            "queries": [{ "columns":columns, "filters":filters,"extras":extras} ],
             "result_format": "csv",
             "result_type": "full",
             "datasource":{"id":dataset_id,"type":"table"}
         }
+        # print(json.dumps(payload,indent=2))
         return self.post("/api/v1/chart/data", json=payload)
 
     # def copy_chart_to_table():

@@ -16,6 +16,8 @@ import jwt
 import pandas as pd
 from dihlibs.fs_secret import encrypt_secret,decrypt_secret
 
+DEFAULT_TIMEZONE=tz=timezone(timedelta(hours=3))
+
 
 DONE = object()
 
@@ -155,15 +157,15 @@ def to_namedtuple(obj: dict):
     return walk(obj, change)
 
 
-def get_month(delta):
+def get_month(delta,tz=DEFAULT_TIMEZONE):
     sign = 1 if delta > 0 else -1
-    x = datetime.today() + sign * relativedelta(months=abs(delta))
+    x = datetime.now(tz) + sign * relativedelta(months=abs(delta))
     return x.replace(day=1).strftime("%Y-%m-01")
 
 
-def days_delta(delta):
+def days_delta(delta,tz=DEFAULT_TIMEZONE):
     sign = 1 if delta > 0 else -1
-    x = datetime.today() + sign * relativedelta(days=abs(delta))
+    x = datetime.now(tz) + sign * relativedelta(days=abs(delta))
     return x.strftime(r"%Y-%m-%d")
 
 
@@ -341,6 +343,8 @@ def catch_json_error(func):
 
     return wrapper
 
+def now(tz=DEFAULT_TIMEZONE):
+    return datetime.now(tz)
 
 def walk(element, action):
     if isinstance(element, dict):
@@ -457,14 +461,14 @@ def generate_dates(start_date, end_date, interval_type="months", interval_value=
     return intervals
 
 
-def generate_token(secret_key,lifespan_mins,tz=timezone(timedelta(hours=3))):
+def generate_token(secret_key,lifespan_mins,tz=DEFAULT_TIMEZONE):
     return jwt.encode(
         {"exp": datetime.now(tz) + timedelta(minutes=lifespan_mins)},
         secret_key,
         algorithm="HS256",
     )
 
-def has_expired_client_side(access_token,tz=timezone(timedelta(hours=3))):
+def has_expired_client_side(access_token,tz=DEFAULT_TIMEZONE):
     try:
         payload = jwt.decode(access_token, options={"verify_signature": False})
         exp_timestamp = payload.get("exp", 0)
@@ -473,7 +477,7 @@ def has_expired_client_side(access_token,tz=timezone(timedelta(hours=3))):
     except jwt.DecodeError:
         return True  
 
-def has_expired(token,secret_key,lifespan_mins=10,tz=timezone(timedelta(hours=3))):
+def has_expired(token,secret_key,lifespan_mins=10,tz=DEFAULT_TIMEZONE):
     try:
         decoded = jwt.decode(token, secret_key, algorithms=["HS256"])
         remaining_time = datetime.fromtimestamp(decoded["exp"], tz) - datetime.now(tz)
@@ -481,7 +485,7 @@ def has_expired(token,secret_key,lifespan_mins=10,tz=timezone(timedelta(hours=3)
     except (jwt.ExpiredSignatureError, jwt.InvalidTokenError):
         return None
 
-def refresh_token(token,secret_key,lifespan_mins=5,tz=timezone(timedelta(hours=3))):
+def refresh_token(token,secret_key,lifespan_mins=5,tz=DEFAULT_TIMEZONE):
     still_active=has_expired(token,secret_key,lifespan_mins,tz)
     return token if still_active else generate_token(secret_key,tz) if still_active is False else None
 
