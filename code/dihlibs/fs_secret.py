@@ -6,9 +6,9 @@ from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from pathlib import Path
 
 
-CONFIG_DIR = f'{ Path.home() }/.dihlibs/'
-DEFAULT_SALT_FILE = f'{ Path.home() }/.dihlibs/.salt'
-DEFAULT_CONFIG_DB = f'{ Path.home() }/.dihlibs/config.db'
+CONFIG_DIR = f'{ Path.home() }/.config/dihlibs/'
+DEFAULT_SALT_FILE = f'{ Path.home() }/.config/dihlibs/.salt'
+DEFAULT_CONFIG_DB = f'{ Path.home() }/.config/dihlibs/config.db'
 
 _CREATE_TABLE = """ 
 CREATE TABLE IF NOT EXISTS encrypted_files (
