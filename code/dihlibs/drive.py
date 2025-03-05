@@ -2,7 +2,6 @@
 from googleapiclient.errors import HttpError
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
-# from oauth2client.service_account import ServiceAccountCredentials
 from googleapiclient.http import MediaFileUpload
 from googleapiclient.http import MediaIoBaseDownload
 import io
