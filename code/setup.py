@@ -2,7 +2,7 @@ from setuptools import setup, find_packages
 
 setup(
     name="dihlibs",
-    version="0.0.72",
+    version="0.0.73",
     author="Nitu",
     author_email="nkataraia@d-tree.org",
     description="A helper package for data integrations",
@@ -46,6 +46,7 @@ setup(
         "fuzzywuzzy",
         "setuptools",
         "python-Levenshtein",
+        "cryptography",
     ],
     entry_points={
         "console_scripts": [
