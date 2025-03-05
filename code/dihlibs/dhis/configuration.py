@@ -1,8 +1,5 @@
-import os, sys, re, json
+import os, sys, json
 import pandas as pd
-import sqlalchemy
-import requests, asyncio
-from functools import partial
 import argparse
 
 from dihlibs.dhis.meta import Meta

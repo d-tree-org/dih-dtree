@@ -2,24 +2,31 @@
 from googleapiclient.errors import HttpError
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
-from oauth2client.service_account import ServiceAccountCredentials
+# from oauth2client.service_account import ServiceAccountCredentials
 from googleapiclient.http import MediaFileUpload
 from googleapiclient.http import MediaIoBaseDownload
 import io
 import pandas as pd
+from google.oauth2 import service_account
+from googleapiclient.discovery import build
 
 
 class Drive:
-    def __init__(self, key: dict=None,credentials=None):
+    def __init__(self, key: dict = None, credentials=None):
         try:
-            scope = [
+            scopes = [
                 "https://www.googleapis.com/auth/drive.file",
                 "https://www.googleapis.com/auth/drive.readonly",
             ]
-            credentials = ServiceAccountCredentials.from_json_keyfile_dict(key, scope) if credentials is None else credentials
+            if credentials is None:
+                if key is not None:
+                    credentials = service_account.Credentials.from_service_account_info(key, scopes=scopes)
+                else:
+                    raise ValueError("Either 'key' or 'credentials' must be provided.")
             self.drive = build("drive", "v3", credentials=credentials)
         except Exception as e:
             print(e)
+
 
     def get_files_in_folder(self, folder_id):
         folder = {

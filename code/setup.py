@@ -2,7 +2,7 @@ from setuptools import setup, find_packages
 
 setup(
     name="dihlibs",
-    version="0.0.65",
+    version="0.0.66",
     author="Nitu",
     author_email="nkataraia@d-tree.org",
     description="A helper package for data integrations",
@@ -41,7 +41,8 @@ setup(
         "google-api-python-client",
         "google-auth-httplib2",
         "google-auth-oauthlib",
-        "oauth2client",
+        # "oauth2client", #deprecated
+        "google-auth" 
         "aiohttp",
         "pyyaml",
         "fuzzywuzzy",
