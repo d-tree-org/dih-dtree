@@ -1,230 +1,587 @@
 import re
-from evaluator import evaluate;
+from collections import deque
 import json
+import re
+from typing import Any, List, Callable, Optional
+from datetime import datetime
+import requests
+
+
+class BoolEvaluator:
+    def evaluate(self, expression: str) -> bool:
+        """Evaluate a boolean expression."""
+        postfix = self.to_postfix(expression)
+        return self.evaluate_postfix(postfix)
+
+    def to_postfix(self, infix: str) -> str:
+        """Convert an infix expression to postfix notation."""
+        output = []
+        operators = deque()
+        token_pattern = r"\d+\.?\d*|'.*?'|[a-zA-Z]+|[+\-*/^<>!=&|~]+|[()]"
+        tokens = re.findall(token_pattern, infix)
+
+        for token in tokens:
+            if re.match(r"\d+\.?\d*|'.*?'|[a-zA-Z]+", token):
+                output.append(token)
+            elif token == "(" or token == ')':
+                self._handle_brackets(output,operators,token)
+            elif self.is_operator(token):
+                self._handle_operator(output,operators,token)
+            else:
+                raise ValueError(f"Unexpected token: {token}")
+
+        while operators:
+            output.append(operators.pop())
+
+        return " ".join(output)
+
+    def evaluate_postfix(self, postfix: str) -> bool:
+        """Evaluate a postfix expression."""
+        stack = []
+        tokens = re.compile(r"\d+\.?\d*|'[^']*'|[a-zA-Z]+|[+\-*/^<>!=&|~]+").findall(postfix);
+
+
+        for token in tokens:
+            if token.lower() == "true":
+                stack.append(1.0)
+            elif token.lower() == "false":
+                stack.append(0.0)
+            elif re.match(r"\d+\.?\d*", token):
+                stack.append(float(token))
+            elif token.startswith("'") and token.endswith("'"):
+                stack.append(token[1:-1])
+            elif self.is_operator(token):
+                self.operate(token, stack)
+            elif re.match(r"\w+", token):
+                stack.append(token)
+            else:
+                raise ValueError(f"Unexpected token: {token}")
+        return stack.pop() == 1.0
+    
+    def _handle_brackets(self,output,operators,token):
+        if token == "(": operators.append(token); return
+        elif token == ")":
+            while operators and operators[-1] != "(":
+                output.append(operators.pop())
+            if operators and operators[-1] == "(":
+                operators.pop()
+
+    def _handle_operator(self,output,operators,token):
+        while (operators and operators[-1] != '(' 
+               and  self.precedence(operators[-1]) >= self.precedence(token)):
+               output.append(operators.pop())
+        operators.append(token)
+
+    def operate(self, token: str, stack: list):
+        """Apply an operator to operands from the stack."""
+        if token == "!":
+            b = stack.pop()
+            if isinstance(b, float):
+                answer = 1.0 if b == 0 else 0.0
+            else:
+                raise ValueError(
+                    f"Unsupported operand type for operator: {token} operand {b}"
+                )
+        else:
+            b = stack.pop()
+            a = stack.pop()
+            if isinstance(a, float) and isinstance(b, float):
+                answer = self.apply_operator(token, a, b)
+            elif self.is_string_operator(token):
+                answer = self.apply_string_operator(token, str(a), str(b))
+            else:
+                raise ValueError(
+                    f"Unsupported operand types for operator: {token} operands {a} and {b}"
+                )
+        stack.append(answer)
+
+    def is_operator(self, token: str) -> bool:
+        """Check if a token is an operator."""
+        return re.match(r"[+\-*/^<>!=&|~]+", token) is not None
+
+    def is_string_operator(self, token: str) -> bool:
+        """Check if a token is a string-compatible operator."""
+        return re.match(r"[<>=~!]+", token) is not None
+
+    def precedence(self, operator: str) -> int:
+        """Determine the precedence of an operator."""
+        if operator in "+-":
+            return 1
+        elif operator in "*/":
+            return 2
+        elif operator == "^":
+            return 3
+        elif operator in "<><=>===!=!~":
+            return 4
+        return -1
+
+    def apply_operator(self, op: str, a: float, b: float) -> float:
+        """Apply a numeric operator to two operands."""
+        if op == "+":
+            return a + b
+        elif op == "-":
+            return a - b
+        elif op == "*":
+            return a * b
+        elif op == "/":
+            return a / b
+        elif op == ">":
+            return 1.0 if a > b else 0.0
+        elif op == "<":
+            return 1.0 if a < b else 0.0
+        elif op == "==" or op == "=":
+            return 1.0 if a == b else 0.0
+        elif op == "!=":
+            return 1.0 if a != b else 0.0
+        elif op == ">=":
+            return 1.0 if a >= b else 0.0
+        elif op == "<=":
+            return 1.0 if a <= b else 0.0
+        elif op == "&" or op == "&&":
+            return 1.0 if a != 0 and b != 0 else 0.0
+        elif op == "|" or op == "||":
+            return 1.0 if a != 0 or b != 0 else 0.0
+        else:
+            raise ValueError(f"Unsupported operator: {op}")
+
+    def apply_string_operator(self, op, a: str, b: str) -> float:
+        """Apply a string operator to two operands."""
+        if op == "==" or op == "=":
+            return 1.0 if a == b else 0.0
+        elif op == "!=":
+            return 1.0 if a != b else 0.0
+        elif op == ">":
+            return 1.0 if a > b else 0.0
+        elif op == "<":
+            return 1.0 if a < b else 0.0
+        elif op == ">=":
+            return 1.0 if a >= b else 0.0
+        elif op == "<=":
+            return 1.0 if a <= b else 0.0
+        elif op == "~":
+            return 1.0 if re.match(b, a) else 0.0
+        else:
+            raise ValueError(f"Unsupported operator for strings: {op}")
+
 
 class JsonQ:
-    PRIMITIVE_TYPES = {"string", "number", "boolean"}
-    REGX = {
-        "integer": re.compile(r"^\d+$"),
-        "regular": re.compile(r"\w+(?:\.(?!\w*\*)\w+)*"),
-        "array": re.compile(r"\[(?:(-?\d+:?-?\d*)|(\??\(.*\))|(\*))\]"),
-        "array_bracket": re.compile(r"\[[^\]]+\]"),
-        "globbed": re.compile(r"\w*\*\w*"),
-        "wildcard": re.compile(r"\.{2,}(?:\.?\w+)*"),
-        "expression": re.compile(r".*\[\??\(.*\)"),
-        "variable": re.compile(r"@\.(\w+)"),
-        "true": re.compile(r"yes|ndio|ndiyo|true", re.I),
-        "false": re.compile(r"hapana|no|false", re.I),
-        "date": re.compile(r"(?:\d{4}-\d{2}-\d{2}|\d{2}-\d{2}-\d{4}|)")
-    }
+    # Regular expressions for path parsing
+    _INTEGER = re.compile(r"^\d+$")
+    _REGULAR_PATH = re.compile(r"\w+(?:\.\w+)*")
+    _ARRAY = re.compile(
+        r"\[(?:(\??\(.+\))|(-?\d*:?-?\d*(?:,-?\d*:?-?\d*)*)|(\*)|(([`\"'])(.+?)\5))]"
+    )
+    _GLOBED_PATH = re.compile(r"(?=.*\*)(?=.*\w)[^.\[\]()?'\"]*")
+    _WILDCARD = re.compile(r"\.{2,3}(?:" + _REGULAR_PATH.pattern + ")?")
+    _PATH_EXPRESSION = re.compile(r".*\[?\??\(.*\)")
+    _PATH_POSSIBILITIES = re.compile(
+        r"((?=.*\*)(?=.*\w)[^.\[\]()?'\"]*)?"  # First capturing group: optional wildcard conditions
+        r"((?:\w+|\"[^\"]+\")(?:\.(?:\w+|\"[^\"]+\"))*)?"  # Second capturing group: matches words or quoted strings with dots
+        r"(\.{2,3}(?:"  # Third capturing group: matches ".." or "..."
+        r"(?:\w+|\"[^\"]+\")(?:\.(?:\w+|\"[^\"]+\"))*)?)?"  # Optional word or quoted string with dots
+        r"(\[[^]]+])?"  # Fourth capturing group: matches brackets with content inside
+    )
+    _JSON_VARIABLE = re.compile(r"@\.(\w+)")
+    _VALUED_TRUE = re.compile(r"(?i)yes|ndio|ndiyo|true")
+    _VALUED_FALSE = re.compile(r"(?i)hapana|no|false")
 
-    @staticmethod
-    def match(type, string):
-        pattern=f'^{JsonQ.REGX[type].pattern}$'
-        return bool(re.compile(pattern).match(string))
+    _DATE_FORMATS = ["%Y-%m-%d", "%d-%m-%Y"]
 
-    @staticmethod
-    def get_splitter():
-        return re.compile(
-            "|".join(f"({JsonQ.REGX[r].pattern})" for r in ["globbed", "regular", "wildcard", "array_bracket"]),
-            re.VERBOSE
-        )
+    def __init__(self, data: Any):
+        """Initialize with raw JSON data."""
+        self.root = data
+        self.bool_evaluator = BoolEvaluator()  # Add BoolEvaluator instance
 
-    def __init__(self, json_obj):
-        if isinstance(json_obj, str):
-            self.root = json.loads(json_obj)
-        else:
-            self.root = json_obj
+    @classmethod
+    def from_json(cls, json_str: str) -> "JsonQ":
+        """Create JsonQ from a JSON string."""
+        try:
+            return cls(json.loads(json_str))
+        except json.JSONDecodeError:
+            return cls("")
 
-    def _evaluate_path(self, json_path):
-        matched = re.finditer(JsonQ.get_splitter(), json_path)
-        return [part for parts in matched for part in parts.groups() if part]
+    @classmethod
+    def from_file(cls, file_path: str) -> "JsonQ":
+        """Create JsonQ from a file."""
+        try:
+            with open(file_path, "r", encoding="utf-8") as f:
+                return cls(json.load(f))
+        except (FileNotFoundError, json.JSONDecodeError):
+            return cls("")
 
-    def _collection_for_each(self, input, take):
-        if isinstance(input, list):
-            self.flat_for_each(input, take)
-        else:
-            take("", input)
+    @classmethod
+    def from_url(cls, url: str) -> "JsonQ":
+        """Create JsonQ from a URL."""
+        try:
+            response = requests.get(url, timeout=10)
+            response.raise_for_status()
+            return cls(response.json())
+        except (requests.RequestException, json.JSONDecodeError):
+            return cls("")
 
-    def get_object_root(self, obj):
-        return obj if not isinstance(obj, JsonQ) else obj.root
+    @classmethod
+    def from_object(cls, obj: Any) -> "JsonQ":
+        """Create JsonQ from a Python object."""
+        if cls._is_json_primitive(obj):
+            return cls(obj)
+        try:
+            return cls(json.loads(json.dumps(obj)))
+        except (TypeError, json.JSONDecodeError):
+            return cls(obj)
 
-    def handle_array_match(self, path, obj, results):
-        parts = JsonQ.REGX["array"].match(path)
-        if not parts:
-            return
+    def to_file(self, file_path: str) -> bool:
+        """Write JSON data to a file."""
+        try:
+            with open(file_path, "w", encoding="utf-8") as f:
+                json.dump(self.root, f, indent=2)
+            return True
+        except IOError:
+            return False
 
-        if parts[3]:
-            self._collection_for_each(obj, lambda _, v: results.append(v))
-        elif parts[2]:
-            self.filter(parts[2], obj, results)
-        elif parts[1]:
-            self._collection_for_each(obj, lambda _, v: results.append(v))
-            self.slice_list(results, parts[1])
+    def integers(self, path):
+        self.get(path)
+        return [
+            int(x)
+            for x in self.find(path)
+            if isinstance(x, (int, str)) and str(x).isdigit()
+        ]
 
-    def slice_list(self, lst, slice_notation):
-        if not slice_notation:
-            return
+    def to_string(self):
+        return json.dumps(self.root)
 
-        slices = slice_notation.split(",")
-        results = []
-        for slice in slices:
-            parts = slice.split(":")
-            single_index = len(parts) == 1 and parts[0]
-            length = len(lst)
-            start = int(parts[0]) if len(parts) > 0 and parts[0] else 0
-            end = int(parts[1]) if len(parts) > 1 and parts[1] else length
-            start = max(start if start >= 0 else length + start, 0)
-            end = start + 1 if single_index else min(end if end >= 0 else length + end, length)
-            for i in range(start, end):
-                results.append(lst[i])
+    def get(self, path):
+        return self._from_results(self.find(path))
 
-        lst.clear()
-        lst.extend(results)
-
-    def is_primitive(self, data):
-        return type(data).__name__ in JsonQ.PRIMITIVE_TYPES
-
-
-    def filter(self, expression, object, results):
-        def _filter_inner(key, obj):
-            obj = self.get_object_root(obj)
-            if isinstance(obj, dict):
-                exp = expression
-                for m in re.finditer(JsonQ.REGX["variable"], exp):
-                    variable = m.group(1)
-                    value = self.prep_variable_for_expression(obj.get(variable))
-                    if value is None:
-                        return
-                    exp = exp.replace(f"@.{variable}", value)
-                evaluation = evaluate(exp.replace("[]\\[]", ""))
-            elif self.is_primitive(obj):
-                value = self.prep_variable_for_expression(obj)
-                if value is None:
-                    return
-                evaluation = evaluate(expression.replace("@." + key, value))
-            else:
-                evaluation = False
-            if evaluation:
-                results.append(obj)
-
-        self._collection_for_each(object,_filter_inner)
-
-
-    def prep_variable_for_expression(self, value):
-        if not isinstance(value, str):
-            return str(value) if self.is_primitive(value) else None
-
-        if JsonQ.match("true", value):
-            return "true"
-        elif JsonQ.match("false", value):
-            return "false"
-        else:
-            return f"'{value}'"
-
-    def handle_normal_path(self, path, obj):
-        if not path:
-            return obj
-
-        current = obj
-        for p in path.split('.'):
-            current = self.value_at_key(p, current)
-
-        return None if current == obj else current
-
-    def value_at_key(self, key, json_thing):
-        if isinstance(json_thing, list) and key.isdigit():
-            return json_thing[int(key)]
-        elif isinstance(json_thing, dict):
-            return json_thing.get(key)
-        else:
-            return json_thing
-
-    def globbed_path(self, path, json_thing, results):
-        self.flat_for_each(json_thing, lambda k, v: self._globbed_inner(path, k, v, results))
-
-    def _globbed_inner(self, path, k, v, results):
-        regex = re.compile(path.replace("*", "\\w*"))
-        if regex.match(k):
-            results.append(v)
-
-    def find_matching_path(self, path, root, results):
-        stack = [root]
-        seen = set()
-        path = re.sub(r"^[^\w*]+", "", path)
-
-        while stack:
-            current = stack.pop()
-            res = self.handle_normal_path(path, current) if "*" not in path else self.globbed_path(path.replace("*", "\\w*"), current, results)
-            self.flat_for_each(current, lambda key, obj: self._matching_inner(obj, stack, seen))
-
-    def _matching_inner(self, obj, stack, seen):
-        if obj is None or id(obj) in seen:
-            return
-        stack.append(obj)
-        seen.add(id(obj))
-
-    def flat_for_each(self, collection, callback):
-        if isinstance(collection, list):
-            for index, value in enumerate(collection):
-                callback(index, value)
-        elif isinstance(collection, dict):
-            for key, value in collection.items():
-                callback(key, value)
-        elif collection is not None:
-            callback("", collection)
-
-    def find(self, json_path, root):
-        results = []
-        is_match = re.match(r"^(\.|)$", json_path)
-        if is_match:
-            return [root]
-        if self.is_primitive(root):
-            return results
+    def find(self, json_path: str) -> List[Any]:
+        """Find all elements matching the given JSON path."""
+        if not json_path or json_path == ".":
+            return [self.root]
+        if self._is_json_primitive(self.root):
+            return []
 
         paths = self._evaluate_path(json_path)
-        results.append(root)
-
+        results = [self.root]
         temp = []
         for path in paths:
             if not results:
                 return results
-
             temp.clear()
-            taker = None
-            if JsonQ.match("regular", path):
-                taker = lambda _, obj: temp.append(self.handle_normal_path(path, obj))
-            elif JsonQ.match("globbed", path):
-                taker = lambda _, obj: self.globbed_path(path, obj, temp)
-            elif JsonQ.match("expression", path):
-                taker = lambda _, obj: self.filter(path, obj, temp)
-            elif JsonQ.match("wildcard", path):
-                taker = lambda _, obj: self.find_matching_path(path, obj, temp)
-            elif JsonQ.match("array", path):
-                taker = lambda _, obj: self.handle_array_match(path, obj, temp)
+            if self._REGULAR_PATH.fullmatch(path):
+                self._flat_for_each(
+                    results, lambda k, v: temp.append(self._handle_normal_path(path, v))
+                )
+            elif self._GLOBED_PATH.fullmatch(path):
+                self._flat_for_each(
+                    results, lambda k, v: self._globed_path(path, v, temp)
+                )
+            elif self._PATH_EXPRESSION.fullmatch(path):
+                self._flat_for_each(results, lambda k, v: self._filter(path, v, temp))
+            elif self._WILDCARD.fullmatch(path):
+                self._flat_for_each(
+                    results, lambda k, v: self._find_matching_path(v, temp)
+                )
+            elif self._ARRAY.fullmatch(path):
+                self._flat_for_each(
+                    results, lambda k, v: self._handle_array_match(path, v, temp)
+                )
             else:
-                print(f"Path not found {json_path}. When processing this part {path}")
+                print(f"Path not found: {json_path}. When processing part: {path}")
                 return []
 
-            self._collection_for_each(results, taker)
-            results.clear()
-            results.extend(temp)
-
-        results.clear()
-        results.extend([obj for obj in temp if obj])
+            results = [x for x in temp if x is not None]
         return results
 
-    def get(self, path):
-        return JsonQ(self.find(path, self.root))
+    def _evaluate_path(self, json_path: str) -> List[str]:
+        """Split the path into components."""
+        json_path = re.sub(r"^\$?\.?", "", json_path)
+        matcher = self._PATH_POSSIBILITIES.finditer(json_path)
+        paths = []
+        for match in matcher:
+            for group in match.groups():
+                if group and group.strip():
+                    paths.append(group)
+        return paths
 
-    def put(self, path, value):
-        i = path.rfind(".")
-        prop = path[i + 1:]
-        object_path = path[:i]
-        self.flat_for_each(self.get(object_path).root, lambda _, obj: obj.update({prop: value}))
+    def _handle_normal_path(self, path: str, obj: Any) -> Any:
+        """Handle dot-separated paths."""
+        current = obj
+        for p in path.split("."):
+            current = self._value_at_key(p, current)
+            if current is None:
+                break
+        return current if current != obj else None
 
-    def val(self):
-        return self.root
+    def _globed_path(self, path: str, obj: Any, results: List[Any]) -> None:
+        """Handle glob patterns."""
+        pattern = path.replace("*", r"\w*")
+        self._flat_for_each(
+            obj, lambda k, v: results.append(v) if re.fullmatch(pattern, k) else None
+        )
 
-    def for_each(self, callback):
-        self.flat_for_each(self.root, lambda k, v: callback(k, JsonQ(v)))
+    def _handle_array_match(self, path: str, obj: Any, results: List[Any]) -> None:
+        """Handle array access."""
+        matcher = self._ARRAY.match(path)
+        if not matcher:
+            return
+        group1, group2, group3, group4, group5, group6 = matcher.groups()
+        if group3:  # [*]
+            self._flat_for_each(obj, lambda k, v: results.append(v))
+        elif group1:  # [?(condition)]
+            self._filter(group1, obj, results)
+        elif group2:  # [start:end] or [index]
+            temp = []
+            self._flat_for_each(obj, lambda k, v: temp.append(v))
+            self._slice_list(temp, group2)
+            results.extend(temp)
+        elif group6:
+            results.append(self._value_at_key(group6, obj))
+
+    def _slice_list(self, lst: List[Any], slice_notation: str) -> None:
+        """Apply array slicing."""
+        result = []
+        for slice_part in slice_notation.split(","):
+            parts = slice_part.split(":")
+            if len(parts) == 1 and parts[0]:
+                idx = int(parts[0])
+                idx = idx if idx >= 0 else len(lst) + idx
+                if 0 <= idx < len(lst):
+                    result.append(lst[idx])
+            else:
+                start = int(parts[0]) if parts[0] else 0
+                end = int(parts[1]) if len(parts) > 1 and parts[1] else len(lst)
+                start = max(start if start >= 0 else len(lst) + start, 0)
+                end = min(end if end >= 0 else len(lst) + end, len(lst))
+                result.extend(lst[start:end])
+        lst.clear()
+        lst.extend(result)
+
+    def _filter(self, expression: str, obj: Any, results: List[Any]) -> None:
+        """Filter objects based on an expression."""
+        expression = re.findall(r"\((.*)\)", expression)[0]
+        self._flat_for_each(
+            obj, lambda k, v: self._evaluate_filter(expression, k, v, results)
+        )
+
+    def _evaluate_filter(
+        self, expression: str, key: str, obj: Any, results: List[Any]
+    ) -> None:
+        """Evaluate filter expression."""
+        obj = self._get_object_root(obj)
+        if isinstance(obj, dict):
+            exp = expression
+            for match in self._JSON_VARIABLE.finditer(exp):
+                var = match.group(1)
+                val = self._prep_variable_for_expression(obj.get(var))
+                if val is None:
+                    return
+                exp = exp.replace(f"@.{var}", val)
+            if self._evaluate_bool(exp):
+                results.append(obj)
+        elif self._is_json_primitive(obj) and key:
+            val = self._prep_variable_for_expression(obj)
+            if val and self._evaluate_bool(expression.replace(f"@.{key}", val)):
+                results.append(obj)
+
+    def _evaluate_bool(self, expression: str) -> bool:
+        """Evaluate a boolean expression using BoolEvaluator."""
+        try:
+            return self.bool_evaluator.evaluate(expression)
+        except Exception as e:
+            print(f"Error evaluating expression: {expression}, error: {e}")
+            return False
+
+    def _find_matching_path(self, obj: Any, results: List[Any]) -> None:
+        """Handle wildcard paths."""
+        seen = set()
+        stack = [obj]
+        while stack:
+            current = stack.pop()
+            if id(current) in seen:
+                continue
+            seen.add(id(current))
+            self._flat_for_each(
+                current, lambda k, v: stack.append(v) if v is not None else None
+            )
+            if current != obj:
+                results.append(current)
+
+    def get_strings(self, json_path: str = "[*]") -> List[str]:
+        """Extract strings from a path."""
+        return [
+            json.dumps(x) if not isinstance(x, str) else x for x in self.find(json_path)
+        ]
+
+    def int_column(self, column_name: str) -> List[int]:
+        """Extract integers from a column."""
+        path = f"[(@.{column_name}~'\\d+')]"
+        return [
+            int(x)
+            for x in self.find(path)
+            if isinstance(x, (int, str)) and str(x).isdigit()
+        ]
+
+    def date_column(self, column_name: str) -> List[datetime]:
+        """Extract dates from a column."""
+        path = f"[(@.{column_name}~'\\d{{2,4}}-\\d{{2}}-\\d{{2,4}}')].{column_name}"
+        return self.get_dates(path)
+
+    def get_dates(self, json_path: str) -> List[datetime]:
+        """Parse dates from a path."""
+        dates = []
+        for d in self.get_strings(json_path):
+            date = self._parse_date(d)
+            if date:
+                dates.append(date)
+        return dates
+
+    def _parse_date(self, date_str: str) -> Optional[datetime]:
+        """Parse a date string."""
+        for fmt in self._DATE_FORMATS:
+            try:
+                return datetime.strptime(date_str, fmt)
+            except ValueError:
+                continue
+        return None
+
+    def select(self, *columns: str) -> "JsonQ":
+        """Select specific columns."""
+        results = []
+        self._flat_for_each(
+            self.root,
+            lambda k, v: results.append(
+                {col: v.get(col) for col in columns} if isinstance(v, dict) else None
+            ),
+        )
+        return self._from_results([r for r in results if r])
+
+    def where(self, condition: str, *values: Any) -> "JsonQ":
+        """Filter data based on a condition."""
+        exp = (
+            condition.replace(" and ", "&&")
+            .replace(" or ", "||")
+            .replace(r"\b(\w+)\b", r"@.\1")
+            .replace("=", "==")
+        )
+        for v in values:
+            if not self._is_json_primitive(v):
+                continue
+            val = f"'{v}'" if isinstance(v, str) else str(v)
+            exp = exp.replace("?", val, 1)
+        exp = f"({exp})"
+        results = []
+        self._filter(exp, self.root, results)
+        return self._from_results(results)
+
+    def put(self, json_path: str, value: Any) -> None:
+        """Put a value at the specified path."""
+        x = json_path.rfind(".")
+        prop = json_path[x + 1 :] if x >= 0 else json_path
+        path = json_path[: max(x, 0)] if x >= 0 else ""
+        res = self.find(path) if path else [self.root]
+        self._flat_for_each(
+            res, lambda k, v: self._put_in_container(True, v, prop, value)
+        )
+
+    def add(self, value: Any) -> None:
+        """Add a value to the root."""
+        self._put_in_container(False, self.root, "", value)
+
+    def _put_in_container(
+        self, override: bool, container: Any, key: str, value: Any
+    ) -> None:
+        """Put value into a container."""
+        if isinstance(container, dict):
+            if not key or (key not in container or override):
+                container[key or ""] = value
+        elif isinstance(container, list):
+            if self._INTEGER.match(key):
+                idx = int(key)
+                if 0 <= idx < len(container) and override:
+                    container[idx] = value
+                else:
+                    container.append(value)
+            else:
+                container.append(value)
+
+    def val(self) -> Any:
+        """Return the raw root data."""
+        return self.root if self.root != [] else None
+
+    def is_empty(self) -> bool:
+        """Check if the data is empty."""
+        if self.root is None:
+            return True
+        if isinstance(self.root, (dict, list)):
+            return len(self.root) == 0
+        if isinstance(self.root, str):
+            return not self.root
+        return False
+
+    def __str__(self) -> str:
+        """String representation."""
+        return (
+            json.dumps(self.root, indent=2)
+            if not isinstance(self.root, str)
+            else self.root
+        )
+
+    def for_each(self, callback: Callable[["str", "JsonQ"], None]) -> None:
+        """Iterate over the data."""
+        self._flat_for_each(
+            self.root, lambda k, v: callback(k, JsonQ(v)) if v != self.root else None
+        )
+
+    @staticmethod
+    def _is_json_primitive(obj: Any) -> bool:
+        """Check if an object is a JSON primitive."""
+        return isinstance(obj, (int, float, str, bool))
+
+    @staticmethod
+    def _get_object_root(obj: Any) -> Any:
+        """Get the root object."""
+        return obj.root if isinstance(obj, JsonQ) else obj
+
+    def _prep_variable_for_expression(self, val: Any) -> Optional[str]:
+        """Prepare a value for expression evaluation."""
+        if val is None:
+            return None
+        if isinstance(val, (int, float)):
+            return str(val)
+        if isinstance(val, bool):
+            return "true" if val else "false"
+        if isinstance(val, str):
+            if self._VALUED_TRUE.match(val):
+                return "true"
+            if self._VALUED_FALSE.match(val):
+                return "false"
+            return f"'{val}'"
+        return None
+
+    def _value_at_key(self, key: str, obj: Any) -> Any:
+        """Access a value by key or index."""
+        if isinstance(obj, dict):
+            return obj.get(key)
+        if isinstance(obj, list) and self._INTEGER.match(key):
+            idx = int(key)
+            return obj[idx] if 0 <= idx < len(obj) else None
+        return None
+
+    def _flat_for_each(self, obj: Any, consumer: Callable[[str, Any], None]) -> None:
+        """Iterate over a collection."""
+        if isinstance(obj, dict):
+            for k, v in obj.items():
+                if v is not None:
+                    consumer(str(k), v)
+        elif isinstance(obj, list):
+            for i, v in enumerate(obj):
+                if v is not None:
+                    consumer(str(i), v)
+        elif obj is not None:
+            consumer("", obj)
+
+    def _from_results(self, results: List[Any]) -> "JsonQ":
+        """Create a new JsonQ from query results."""
+        results = [x for x in results if x is not None]
+        if len(results) == 1:
+            return JsonQ(results[0])
+        return JsonQ(results if results else [])
