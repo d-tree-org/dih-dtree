@@ -246,6 +246,12 @@ class JsonQ:
             if isinstance(x, (int, str)) and str(x).isdigit()
         ]
 
+    def str(self, path):
+        res=self.find(path)
+        if len(res)==1:
+            return res[0]
+        else: return self._from_results(res).to_string()
+
     def to_string(self):
         return json.dumps(self.root)
 
@@ -293,7 +299,7 @@ class JsonQ:
 
     def _evaluate_path(self, json_path: str) -> List[str]:
         """Split the path into components."""
-        json_path = re.sub(r"^\$?\.?", "", json_path)
+        json_path = re.sub(r"^$\.?", "", json_path)
         matcher = self._PATH_POSSIBILITIES.finditer(json_path)
         paths = []
         for match in matcher:
@@ -446,13 +452,21 @@ class JsonQ:
     def select(self, *columns: str) -> "JsonQ":
         """Select specific columns."""
         results = []
-        self._flat_for_each(
-            self.root,
-            lambda k, v: results.append(
-                {col: v.get(col) for col in columns} if isinstance(v, dict) else None
-            ),
-        )
+        def visit(k, v):
+          if isinstance(v, dict):
+                jq = JsonQ(v)
+                selected = {}
+                for col in columns:
+                    # split on ' as ', case‐insensitive
+                    parts = re.split(r'\s+as\s+', col, flags=re.IGNORECASE)
+                    expr = parts[0]
+                    alias = parts[1] if len(parts) > 1 else expr
+                    val = jq.get(expr).val()
+                    selected[alias] = val
+                results.append(selected)
+        self._flat_for_each(self.root, visit)
         return self._from_results([r for r in results if r])
+
 
     def where(self, condition: str, *values: Any) -> "JsonQ":
         """Filter data based on a condition."""

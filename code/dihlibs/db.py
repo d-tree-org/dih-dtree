@@ -151,6 +151,19 @@ class DB:
         else:  # Default to string
             v=str(value).replace("'", "''");
             return f"'{v}'"
+        
+    def to_cte(self,df,cte_name):
+        df = df.copy()
+        db_columns = self.quote_columns_names(df.columns)
+        columns = ",".join(db_columns)
+        # Format values properly
+        for c, dtype in zip(df.columns, df.dtypes):
+            df[c] = df[c].apply(lambda v: self._format_value(v, dtype))
+        values = df.apply(lambda r: f"({','.join(map(str, r.values))})", axis=1)
+        return f"""{cte_name}({columns}) AS ( VALUES
+          {',\n  '.join(values)}
+        )
+        """
 
     def update_table_df(self, df, tablename, id_columns, on_conflict=''):
         df = df.copy()
