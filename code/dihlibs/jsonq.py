@@ -5,6 +5,7 @@ import re
 from typing import Any, List, Callable, Optional
 from datetime import datetime
 import requests
+import dihlibs.functions as fn
 
 
 class BoolEvaluator:
@@ -39,8 +40,6 @@ class BoolEvaluator:
         """Evaluate a postfix expression."""
         stack = []
         tokens = re.compile(r"\d+\.?\d*|'[^']*'|[a-zA-Z]+|[+\-*/^<>!=&|~]+").findall(postfix);
-
-
         for token in tokens:
             if token.lower() == "true":
                 stack.append(1.0)
@@ -189,7 +188,7 @@ class JsonQ:
 
     def __init__(self, data: Any):
         """Initialize with raw JSON data."""
-        self.root = data
+        self.root = data if not isinstance(data,JsonQ) else data.root
         self.bool_evaluator = BoolEvaluator()  # Add BoolEvaluator instance
 
     @classmethod
@@ -203,17 +202,13 @@ class JsonQ:
     @classmethod
     def from_file(cls, file_path: str) -> "JsonQ":
         """Create JsonQ from a file."""
-        try:
-            with open(file_path, "r", encoding="utf-8") as f:
-                return cls(json.load(f))
-        except (FileNotFoundError, json.JSONDecodeError):
-            return cls("")
+        return cls(fn.load_file_data(file_path))
 
     @classmethod
-    def from_url(cls, url: str) -> "JsonQ":
+    def from_url(cls, url: str, *args, **kwargs) -> "JsonQ":
         """Create JsonQ from a URL."""
         try:
-            response = requests.get(url, timeout=10)
+            response = requests.get(url, timeout=10,*args,**kwargs)
             response.raise_for_status()
             return cls(response.json())
         except (requests.RequestException, json.JSONDecodeError):
@@ -246,11 +241,20 @@ class JsonQ:
             if isinstance(x, (int, str)) and str(x).isdigit()
         ]
 
+    def int(self, path):
+        return int(self.str(path))
+
     def str(self, path):
         res=self.find(path)
         if len(res)==1:
-            return res[0]
+            return str(res[0])
         else: return self._from_results(res).to_string()
+
+    def value(self, path):
+        res=self.find(path)
+        if len(res)==1:
+            return res[0]
+        else: return res
 
     def to_string(self):
         return json.dumps(self.root)
@@ -284,7 +288,7 @@ class JsonQ:
                 self._flat_for_each(results, lambda k, v: self._filter(path, v, temp))
             elif self._WILDCARD.fullmatch(path):
                 self._flat_for_each(
-                    results, lambda k, v: self._find_matching_path(v, temp)
+                    results, lambda k, v: self._find_matching_path(path,v, temp)
                 )
             elif self._ARRAY.fullmatch(path):
                 self._flat_for_each(
@@ -340,6 +344,8 @@ class JsonQ:
             self._slice_list(temp, group2)
             results.extend(temp)
         elif group6:
+            if isinstance(obj,List) and len(obj)==1:
+               obj=obj[0] 
             results.append(self._value_at_key(group6, obj))
 
     def _slice_list(self, lst: List[Any], slice_notation: str) -> None:
@@ -396,19 +402,21 @@ class JsonQ:
             print(f"Error evaluating expression: {expression}, error: {e}")
             return False
 
-    def _find_matching_path(self, obj: Any, results: List[Any]) -> None:
+    def _find_matching_path(self,path, obj: Any, results: List[Any]) -> None:
         """Handle wildcard paths."""
         seen = set()
-        stack = [obj]
+        path = path.lstrip('.')
+        stack = [('',obj)]
         while stack:
-            current = stack.pop()
-            if id(current) in seen:
+            p,current = stack.pop()
+            p=p.strip('.')
+            if p in seen:
                 continue
-            seen.add(id(current))
+            seen.add(p)
             self._flat_for_each(
-                current, lambda k, v: stack.append(v) if v is not None else None
+                current, lambda k, v: stack.append((f'{p}.{k}',v)) if v is not None else None
             )
-            if current != obj:
+            if current != obj and path in p:
                 results.append(current)
 
     def get_strings(self, json_path: str = "[*]") -> List[str]:
@@ -599,3 +607,34 @@ class JsonQ:
         if len(results) == 1:
             return JsonQ(results[0])
         return JsonQ(results if results else [])
+    
+
+    def leaves(self,path='',predicateFunc=None):
+        """Handle wildcard paths."""
+        obj=self.get(path).root
+        res={}
+        seen = set()
+        stack = [(obj,path)]
+        while stack:
+            current,p = stack.pop()
+            p=p.strip('.')
+            if p in seen:
+                continue
+            seen.add(p)
+            self._flat_for_each(
+                current, lambda k, v: stack.append((v,f'{p}.{k}')) if v is not None else None
+            )
+
+            if current != obj and self._is_json_primitive(current):
+                if predicateFunc is None or predicateFunc(p,current):
+                    res[p.lstrip('.')]=current
+        return res    
+
+    def fill_template(self, template):
+        jq=JsonQ(template)
+        leaves=jq.leaves(predicateFunc=lambda _,v: v and '$' == v[0])
+        for k,v in leaves.items():
+            p=re.sub(r'\$?([^.]+)\.?',r'["\1"]',v)
+            value=self.value(p) or None
+            jq.put(k,value)
+        return jq.root
