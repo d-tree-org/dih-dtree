@@ -186,7 +186,7 @@ class JsonQ:
 
     _DATE_FORMATS = ["%Y-%m-%d", "%d-%m-%Y"]
 
-    def __init__(self, data: Any):
+    def __init__(self, data: Any={}):
         """Initialize with raw JSON data."""
         self.root = data if not isinstance(data,JsonQ) else data.root
         self.bool_evaluator = BoolEvaluator()  # Add BoolEvaluator instance
@@ -494,19 +494,21 @@ class JsonQ:
         self._filter(exp, self.root, results)
         return self._from_results(results)
 
-    def put(self, json_path: str, value: Any) -> None:
+    def put(self, json_path: str, value: Any,override=True) -> None:
         """Put a value at the specified path."""
-        x = json_path.rfind(".")
-        prop = json_path[x + 1 :] if x >= 0 else json_path
-        path = json_path[: max(x, 0)] if x >= 0 else ""
+        match=re.search(r'(\["[^"]*."\]|(?<=\.)[^.\]]+|^[^.\]]+)$',json_path)
+        if not match:
+            return
+        field=re.sub(r'(^[\s"\[]+|[\s"\]]+$)','',match.group(0))
+        path=json_path[:match.start()]
         res = self.find(path) if path else [self.root]
         self._flat_for_each(
-            res, lambda k, v: self._put_in_container(True, v, prop, value)
+            res, lambda k, v: self._put_in_container(override, v, field, value)
         )
 
-    def add(self, value: Any) -> None:
+    def add(self, json_path: str, value: Any) -> None:
         """Add a value to the root."""
-        self._put_in_container(False, self.root, "", value)
+        self.put(json_path,value,False)
 
     def _put_in_container(
         self, override: bool, container: Any, key: str, value: Any
@@ -630,11 +632,12 @@ class JsonQ:
                     res[p.lstrip('.')]=current
         return res    
 
-    def fill_template(self, template):
-        jq=JsonQ(template)
+    def fill_template(self, template=None, file=None):
+        jq=JsonQ(template) if template is not None else JsonQ.from_file(file)
         leaves=jq.leaves(predicateFunc=lambda _,v: v and '$' == v[0])
         for k,v in leaves.items():
             p=re.sub(r'\$?([^.]+)\.?',r'["\1"]',v)
+            key=re.sub(r'\$?([^.]+)\.?',r'["\1"]',k)
             value=self.value(p) or None
-            jq.put(k,value)
+            jq.put(key,value)
         return jq.root
