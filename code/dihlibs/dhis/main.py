@@ -5,7 +5,7 @@ import requests, asyncio
 from functools import partial
 
 from dihlibs.dhis import DHIS, UploadSummary
-from dihlibs.db import DB
+from dihlibs.db import DB, ResultFormat
 from dihlibs.dhis.configuration import Configuration
 from dihlibs import functions as fn
 from dihlibs import cron_logger as logger
@@ -28,7 +28,7 @@ def download_matview_data(views, db: DB):
             matview = f"({sql}) as data_cte "
 
         sql = f"select * from {matview} where {view.period_column}='{view.period_db}'"
-        db.query(sql).to_csv(f".data/views/{view.db_view}:{view.period}.csv",index=False)
+        db.query(sql,format=ResultFormat.PANDAS).to_csv(f".data/views/{view.db_view}:{view.period}.csv",index=False)
     return f"Downloaded {view.db_view}"
 
 
