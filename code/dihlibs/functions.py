@@ -157,16 +157,33 @@ def to_namedtuple(obj: dict):
     return walk(obj, change)
 
 
-def get_month(delta,tz=DEFAULT_TIMEZONE):
+def get_month(delta,tz=DEFAULT_TIMEZONE,start=None):
     sign = 1 if delta > 0 else -1
-    x = datetime.now(tz) + sign * relativedelta(months=abs(delta))
+    start = datetime.now(tz) if not start else start
+    x = start + sign * relativedelta(months=abs(delta))
     return x.replace(day=1).strftime("%Y-%m-01")
 
 
-def days_delta(delta,tz=DEFAULT_TIMEZONE):
+def days_delta(delta,tz=DEFAULT_TIMEZONE,start=None):
     sign = 1 if delta > 0 else -1
-    x = datetime.now(tz) + sign * relativedelta(days=abs(delta))
+    start = datetime.now(tz) if not start else start
+    x = start + sign * relativedelta(days=abs(delta))
     return x.strftime(r"%Y-%m-%d")
+
+def date_from_millisec(millisecs,tz=DEFAULT_TIMEZONE):
+    return datetime.fromtimestamp(millisecs/1000,tz)
+
+
+def dt(delta, unit='days', start=None, tz=DEFAULT_TIMEZONE):
+    start = start or datetime.now(tz)
+    specs = {
+        'hours': ('hours',  '%F %T'),
+        'days':  ('days',   '%F'),
+        'months':('months', '%Y-%m-01'),
+    }
+    key, fmt = specs[unit]
+    result = start + relativedelta(**{key: delta})
+    return result.strftime(fmt)
 
 
 def file_binary(file_name):

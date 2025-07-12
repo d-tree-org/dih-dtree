@@ -611,6 +611,12 @@ class JsonQ:
         return JsonQ(results if results else [])
     
 
+    def keys(self,path='',predicateFunc=None,trimmed=False):
+        data=self.leaves(path,predicateFunc=predicateFunc)
+        if trimmed:
+            data = {re.sub(r".+\.(\w+)$", r"\1", key): value for key, value in data.items()}
+        return list(data.keys())
+
     def leaves(self,path='',predicateFunc=None):
         """Handle wildcard paths."""
         obj=self.get(path).root

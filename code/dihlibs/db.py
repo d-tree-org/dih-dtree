@@ -1,4 +1,5 @@
 from sqlalchemy import create_engine, text
+from sqlalchemy.exc import SQLAlchemyError
 import pandas as pd
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy import text
@@ -30,6 +31,19 @@ class DB:
         self._connect_with_dict_or_file(conf, connection_file,rc)
         self.engine = create_engine(self.connection_string)
         self.Session = sessionmaker(bind=self.engine)
+        self._ssh_connection=None
+        self._conn=None
+        
+    def connect(self,key_file=f'{Path.home()}/.ssh'):
+        if not self._ssh_connection:
+            self._ssh_connection=self.open_ssh(key_file)
+            self._ssh_connection.wait(25)
+        self._conn=self.engine.connect()
+        self._conn.execution_options(isolation_level="AUTOCOMMIT")
+        return self.ssh_command
+
+    def close(self):
+        self._ssh_connection.__exit__()
 
     def testCipher(self):
         engine = create_engine(self.connection_string)
@@ -61,7 +75,7 @@ class DB:
         else:
             raise FileNotFoundError(f'Key file or directory not found: {key_file}')
 
-    def ssh_run(self, sql_func, *args, key_file=f'{Path.home()}/.ssh', ssh_wait=5, **kwargs):
+    def ssh_run(self, sql_func, *args, key_file=f'{Path.home()}/.ssh', ssh_wait=25, **kwargs):
         func = sql_func if sql_func is not None else self.tables
         if self.ssh_command is None or self.ssh_command.lower() == 'no':
             return func(*args, **kwargs)
@@ -96,7 +110,10 @@ class DB:
     
     def query(self, query, params=None):
         query = self._bind(query,params)
-        return pd.read_sql_query(text(query), self.engine, params=params)
+        if self._conn:
+            return pd.read_sql_query(text(query), con=self._conn, params=params)
+        else: 
+            return pd.read_sql_query(text(query), self.engine, params=params)
 
     def file(self, filename, params=None,exec=False):
         func=self.query if not exec else self.exec 
@@ -251,3 +268,18 @@ class DB:
             os.remove(file)
 
     # registry.register("sqlcipher", "dihlibs.SQLCipherDialect", "SQLCipherDialect")
+
+class FastDB(DB):
+    def query(self, sql, params=None):
+        if self._conn is None:
+            self.connect()
+        # reuse the same Connection each time
+        try: 
+            sql = self._bind(sql,params)
+            result = self._conn.execute(text(sql), params or {})
+            cols   = result.keys()
+            rows   = result.fetchall()
+            return [dict(zip(cols, row)) for row in rows]
+        except SQLAlchemyError:
+            self._conn.rollback()
+            raise
