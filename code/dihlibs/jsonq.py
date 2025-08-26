@@ -256,8 +256,13 @@ class JsonQ:
             return res[0]
         else: return res
 
-    def to_string(self):
-        return json.dumps(self.root)
+    def to_string(self,indent=None):
+        if isinstance(self.root,str):
+            return self.root
+        return json.dumps(self.root,indent=indent, default=lambda o: o.isoformat() if hasattr(o, "isoformat") else str(o))
+
+    def dumps(self,indent=None):
+        return self.to_string(indent)
 
     def get(self, path):
         return self._from_results(self.find(path))
@@ -494,6 +499,9 @@ class JsonQ:
         self._filter(exp, self.root, results)
         return self._from_results(results)
 
+    def change(self,path,func):
+        self.put(path,func(self.get(path).root))
+        
     def put(self, json_path: str, value: Any,override=True) -> None:
         """Put a value at the specified path."""
         match=re.search(r'(\["[^"]*."\]|(?<=\.)[^.\]]+|^[^.\]]+)$',json_path)
@@ -544,7 +552,7 @@ class JsonQ:
     def __str__(self) -> str:
         """String representation."""
         return (
-            json.dumps(self.root, indent=2)
+            json.dumps(self.root,indent=2, default=lambda o: o.isoformat() if hasattr(o, "isoformat") else str(o))
             if not isinstance(self.root, str)
             else self.root
         )

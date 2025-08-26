@@ -127,7 +127,7 @@ class DB:
         if params is None:
             return sql
         for key in params:
-            sql = re.sub(rf"'\[\s*{key}\s*]'", f" :{key}", sql)
+            sql = re.sub(rf"\[\s*{key}\s*]", f" :{key}", sql)
         return sql
 
     def query(
@@ -212,9 +212,8 @@ class DB:
         for c, dtype in zip(df.columns, df.dtypes):
             df[c] = df[c].apply(lambda v: self._format_value(v, dtype))
         values = df.apply(lambda r: f"({','.join(map(str, r.values))})", axis=1)
-        return f"""{cte_name}({columns}) AS ( VALUES
-          {',\n  '.join(values)}
-        )
+        valuesx = ',  '.join(values)
+        return f"""{cte_name}({columns}) AS ( VALUES {valuesx})
         """
 
     def update_table_df(self, df, tablename, id_columns, on_conflict=""):
