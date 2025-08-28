@@ -78,8 +78,8 @@ class DB:
         if filename or resource:
             conf=fn.load_secret_file(filename or 'db_connections')
         jq=JsonQ(conf)
-        self.ssh_command = jq.str(f'..{resource}.db.ssh').replace('[]','') 
-        self.connection_string = jq.str(f'..{resource}.db.url').replace('[]','')
+        self.ssh_command = jq.str(f'..{resource}.db.ssh').replace('[]',self.ssh_command) 
+        self.connection_string = jq.str(f'..{resource}.db.url').replace('[]',self.connection_string)
         
 
     def open_ssh(self, key_file):
