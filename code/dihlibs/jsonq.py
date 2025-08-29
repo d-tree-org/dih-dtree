@@ -215,6 +215,10 @@ class JsonQ:
             return cls("")
 
     @classmethod
+    def from_secret(cls, filename:str):
+        return cls(fn.load_secret_file(filename))
+
+    @classmethod
     def from_object(cls, obj: Any) -> "JsonQ":
         """Create JsonQ from a Python object."""
         if cls._is_json_primitive(obj):
@@ -237,7 +241,7 @@ class JsonQ:
         self.get(path)
         return [
             int(x)
-            for x in self.find(path)
+            for x in self._find(path)
             if isinstance(x, (int, str)) and str(x).isdigit()
         ]
 
@@ -245,13 +249,13 @@ class JsonQ:
         return int(self.str(path))
 
     def str(self, path):
-        res=self.find(path)
+        res=self._find(path)
         if len(res)==1:
             return str(res[0])
         else: return self._from_results(res).to_string()
 
     def value(self, path):
-        res=self.find(path)
+        res=self._find(path)
         if len(res)==1:
             return res[0]
         else: return res
@@ -265,9 +269,12 @@ class JsonQ:
         return self.to_string(indent)
 
     def get(self, path):
-        return self._from_results(self.find(path))
+        return self._from_results(self._find(path))
 
-    def find(self, json_path: str) -> List[Any]:
+    def find(self, path):
+        return self._from_results(self._find(path)).root
+
+    def _find(self, json_path: str) -> List[Any]:
         """Find all elements matching the given JSON path."""
         if not json_path or json_path == ".":
             return [self.root]
@@ -427,7 +434,7 @@ class JsonQ:
     def get_strings(self, json_path: str = "[*]") -> List[str]:
         """Extract strings from a path."""
         return [
-            json.dumps(x) if not isinstance(x, str) else x for x in self.find(json_path)
+            json.dumps(x) if not isinstance(x, str) else x for x in self._find(json_path)
         ]
 
     def int_column(self, column_name: str) -> List[int]:
@@ -435,7 +442,7 @@ class JsonQ:
         path = f"[(@.{column_name}~'\\d+')]"
         return [
             int(x)
-            for x in self.find(path)
+            for x in self._find(path)
             if isinstance(x, (int, str)) and str(x).isdigit()
         ]
 
@@ -509,7 +516,7 @@ class JsonQ:
             return
         field=re.sub(r'(^[\s"\[]+|[\s"\]]+$)','',match.group(0))
         path=json_path[:match.start()]
-        res = self.find(path) if path else [self.root]
+        res = self._find(path) if path else [self.root]
         self._flat_for_each(
             res, lambda k, v: self._put_in_container(override, v, field, value)
         )
