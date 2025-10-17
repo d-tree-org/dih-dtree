@@ -90,12 +90,12 @@ def file_dict(filename):
     with open(filename) as file:
         return json.load(file) if ".json" in filename else yaml.safe_load(file)
 
-def load_secret_file(filename):
+def load_secret_file(filename,overwrite=False):
     secret=None
     if os.path.isfile(filename):
         if is_binary(filename):
             raise ValueError("File cannot be binary") 
-        encrypt_secret (filename)
+        encrypt_secret (filename,overwrite)
         secret = decrypt_secret(filename).decode('utf-8')
     else:
         secret = decrypt_secret(filename).decode('utf-8')

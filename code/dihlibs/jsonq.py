@@ -4,7 +4,7 @@ import json
 import re
 from typing import Any, List, Callable, Optional
 from datetime import datetime
-import requests
+import requests,os
 import dihlibs.functions as fn
 
 
@@ -205,6 +205,13 @@ class JsonQ:
         return cls(fn.load_file_data(file_path))
 
     @classmethod
+    def from_folder(cls, folder: str) -> "JsonQ":
+        """Create JsonQ from a folder."""
+        return cls([ fn.load_file_data(f'{folder}/{file}')
+               for file in os.listdir(f'{folder}') 
+        ])
+
+    @classmethod
     def from_url(cls, url: str, *args, **kwargs) -> "JsonQ":
         """Create JsonQ from a URL."""
         try:
@@ -215,8 +222,8 @@ class JsonQ:
             return cls("")
 
     @classmethod
-    def from_secret(cls, filename:str):
-        return cls(fn.load_secret_file(filename))
+    def from_secret(cls, filename:str,overwrite=False):
+        return cls(fn.load_secret_file(filename,overwrite))
 
     @classmethod
     def from_object(cls, obj: Any) -> "JsonQ":
@@ -662,3 +669,4 @@ class JsonQ:
             value=self.value(p) or None
             jq.put(key,value)
         return jq.root
+    
