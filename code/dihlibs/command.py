@@ -2,14 +2,14 @@ from concurrent.futures import ThreadPoolExecutor
 import concurrent.futures
 from subprocess import Popen, PIPE
 from pathlib import Path
-import pkg_resources
+from importlib import resources
 import dihlibs.functions as fn
 
 
 
 class _Command:
     def __init__(self, cmd, bg=True):
-        bash_functions = pkg_resources.resource_filename('dihlibs', 'data/bash/script.sh')
+        bash_functions = str(resources.files('dihlibs').joinpath('data/bash/script.sh'))
         self.cmd = f'. $HOME/.bashrc && .  {bash_functions}  && {cmd.strip()}'
         self.bg = bg
         self.executor = ThreadPoolExecutor(max_workers=2)
@@ -41,4 +41,3 @@ class _Command:
     def __exit__(self, exc_type, exc_value, traceback):
         self.shell.kill()
         self.executor.shutdown()
-

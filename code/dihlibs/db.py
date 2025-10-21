@@ -7,7 +7,7 @@ from sqlalchemy import text
 import re, os, json
 import dihlibs.functions as fn
 from pathlib import Path
-import pkg_resources as pkg
+from importlib import resources
 from dihlibs.node import Node
 from dihlibs.graph import Graph
 from dihlibs.jsonq import JsonQ
@@ -164,8 +164,8 @@ class DB:
         return self.query(query)
 
     def table(self, table_name, schema="public", *args, **kwargs):
-        sql_file = pkg.resource_filename("dihlibs", "data/describe_table.sql")
-        return self.file(sql_file, {"table": table_name, "schema": schema})
+        with resources.as_file(resources.files("dihlibs").joinpath("data/describe_table.sql")) as sql_path:
+            return self.file(str(sql_path), {"table": table_name, "schema": schema})
 
     def view(self, view_name,*args, **kwargs):
         return self.query(
@@ -236,8 +236,7 @@ class DB:
             df[c] = df[c].apply(lambda v: self._format_value(v, dtype))
         values = df.apply(lambda r: f"({','.join(map(str, r.values))})", axis=1)
 
-        sql_file = pkg.resource_filename("dihlibs", "data/df_update_table.sql")
-        sql = Path(sql_file).read_text()
+        sql = resources.files("dihlibs").joinpath("data/df_update_table.sql").read_text()
         sql = sql.format(
             tablename=tablename,
             columns=columns,
@@ -251,11 +250,8 @@ class DB:
         return self.exec(sql)
 
     def refresh_matviews(self, schema=["public"]):
-        sql = (
-            pkg.resource_string("dihlibs", "data/matview_dependencies.sql")
-            .decode("utf-8")
-            .format(schema="','".join(schema))
-        )
+        sql = resources.files("dihlibs").joinpath("data/matview_dependencies.sql").read_text()
+        sql = sql.format(schema="','".join(schema))
         df = self.secure.query(sql)
         df.loc[df.matview_name == df.depends_on, "depends_on"] = None
         dc = df[df.view_schema.isin(schema)]

@@ -7,7 +7,7 @@ from dihlibs.dhis import DHIS
 from dihlibs import functions as fn
 from dihlibs import cron_logger as logger
 from dihlibs import drive as gd
-import pkg_resources as pkr
+from importlib import resources
 import shlex, shutil, tempfile, yaml
 from sys import exit
 
@@ -146,9 +146,8 @@ class Configuration:
 
     def create_cron_compose(self):
         os.makedirs(".cache/docker/cronies", exist_ok=True)
-        cronies = pkr.resource_filename("dihlibs", "data/docker/cronies.zip")
-
-        command = f"cd .cache/docker && cp {cronies} . && unzip -o cronies.zip -d . && rm cronies.zip "
+        with resources.as_file(resources.files("dihlibs").joinpath("data/docker/cronies.zip")) as cronies:
+            command = f"cd .cache/docker && cp {cronies} . && unzip -o cronies.zip -d . && rm cronies.zip "
         fn.cmd_wait(command)
         fn.text(".cache/docker/cronies/.env", f'proj={self.get("config-folder")}')
         fn.cmd_wait("turn_on_cron_container", verbose=True)
@@ -156,8 +155,8 @@ class Configuration:
     def create_dhis_compose(self):
         os.makedirs(".cache/docker/backend", exist_ok=True)
         # create compose file
-        backend = pkr.resource_filename("dihlibs", "data/docker/backend.zip")
-        command = f"cd .cache/docker && cp {backend}  . && unzip -o backend.zip -d . && rm backend.zip "
+        with resources.as_file(resources.files("dihlibs").joinpath("data/docker/backend.zip")) as backend:
+            command = f"cd .cache/docker && cp {backend}  . && unzip -o backend.zip -d . && rm backend.zip "
         fn.cmd_wait(command)
         comp = fn.text(f".cache/docker/backend/dhis/compose/compose-template.yml")
         conf = self.get_backend_conf()

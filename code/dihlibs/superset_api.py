@@ -3,6 +3,9 @@ import dihlibs.functions as fn
 from dihlibs.node import Node
 import json
 from functools import wraps
+from dihlibs.jsonq import JsonQ
+import pandas as pd,re
+from io import StringIO
 
 class SupersetAPI:
     def __init__(self, rc, file="db_connections"):
@@ -10,6 +13,7 @@ class SupersetAPI:
         self.rc = rc
         self.headers = {}
         self.access_token = None
+        self._refresh_token = None
         self.url = None
 
     def login(self):
@@ -24,26 +28,35 @@ class SupersetAPI:
         }
         response = requests.post(
             self.url + "/api/v1/security/login", json=payload
-        ).json()
-        self.access_token=response.get("access_token")
-        self.refresh_token = response.get("refresh_token")
-        return self.access_token is not None
+        )
+        if response.status_code != 200:
+            return response
+        data = response.json()
+        self.access_token = data.get("access_token")
+        self._refresh_token = data.get("refresh_token")
+        return response
 
-    def refresh_token(self):
-        url = "/api/v1/security/refresh"
-        refresh_payload = json.dumps({"refresh_token": self.refresh_token})
-        resp = self.post(url, data=refresh_payload)
-        self.access_token=resp.get("access_token")
+    def refresh_access_token(self):
+        if not self._refresh_token:
+            return False
+        refresh_url = f"{self.url}/api/v1/security/refresh"
+        resp = requests.post(refresh_url, json={"refresh_token": self._refresh_token})
+        if resp.status_code != 200:
+            return False
+        data = resp.json()
+        self.access_token = data.get("access_token")
+        self._refresh_token = data.get("refresh_token", self._refresh_token)
         return self.access_token is not None
 
     def ensure_authenticated(self):
         """Ensures the session is authenticated before making requests."""
         if not self.access_token:
             print('ensuring auth...attempting to log in first')
-            return self.login()
+            response = self.login()
+            return response is not None and response.status_code == 200 and self.access_token
         elif fn.has_expired_client_side(self.access_token):
             print('ensuring auth...token has expired, refreshing it first')
-            return self.refresh_token()
+            return self.refresh_access_token()
         return True
 
     def retry_on_auth_failure(func):
@@ -55,9 +68,10 @@ class SupersetAPI:
                 print("Could not authenicate, so exiting")
                 return
             response = func(self, *args, **kwargs)
-            if response.status_code in [401, 403]:  # Session expired
+            if response is not None and response.status_code in [401, 403]:  # Session expired
                 print('retrying..')
-                if self.login().status_code == 200:  # Re-login and retry
+                login_response = self.login()
+                if login_response is not None and login_response.status_code == 200:
                     response = func(self, *args, **kwargs)
             return response
 
@@ -65,17 +79,34 @@ class SupersetAPI:
 
     @retry_on_auth_failure
     def post(self, url, *args, **kwargs):
-        self.headers["Authorization"]= f"Bearer {self.access_token}"
-        return requests.post(self.url + url, *args,headers=self.headers, **kwargs)
+        headers = {**self.headers, "Authorization": f"Bearer {self.access_token}"}
+        return requests.post(self.url + url, *args, headers=headers, **kwargs)
 
     @retry_on_auth_failure
     def get(self, url, *args, **kwargs):
-        self.headers["Authorization"]= f"Bearer {self.access_token}"
-        return requests.get(self.url + url, *args,headers=self.headers, **kwargs)
+        headers = {**self.headers, "Authorization": f"Bearer {self.access_token}"}
+        return requests.get(self.url + url, *args, headers=headers, **kwargs)
+    
+    def fetch_dashboard(self,name):
+        return self.list_dashboards().get(f"[?(@.dashboard_title ~ '{name}')]");
 
     def list_dashboards(self):
         """Fetches a list of dashboards."""
-        return self.get( "/api/v1/dashboard/")
+        return JsonQ.from_response(self.get( "/api/v1/dashboard/")).get('result')
+
+    def list_charts(self,dashboard,chart_names):
+        """Fetches a list of charts."""
+        expr = " || ".join(
+              f"""
+                (@.chart_name && @.chart_name~'{name}') 
+                || (@.slice_name && @.slice_name ~ '{name}')
+                || (@.slice_name && @.slice_name ~ '{name}')
+                """.replace('\n','')
+              for name in chart_names
+          )
+        rs=self.get(f"/api/v1/dashboard/{dashboard.str("id")}/charts")
+        return JsonQ.from_response(rs).get(f'result[?({expr})]')
+       
 
     def export_dashboards(self, dashboard_ids: list, export_filename="dashboards.zip"):
         """Exports dashboards and saves them as a ZIP file."""
@@ -108,22 +139,15 @@ class SupersetAPI:
         else:
             print(res.text)
 
-    def get_chart_data(self, dataset_id,columns, filters, extras=None):
-        payload = {
-            "queries": [{ "columns":columns, "filters":filters,"extras":extras} ],
-            "result_format": "csv",
-            "result_type": "full",
-            "datasource":{"id":dataset_id,"type":"table"}
-        }
-        # print(json.dumps(payload,indent=2))
-        return self.post("/api/v1/chart/data", json=payload)
-
-    # def copy_chart_to_table():
-    #     try:
-    #         a = sa.get_chart_data(166,columns=['chw_name','visits','registrations',"ward",'event_date','region','provider_id'],filters=filters )
-    #         df=pd.read_csv(StringIO(a.text))
-    #         df['event_date']=pd.to_datetime(df.event_date,format="%Y-%m-%d")
-    #         x=db.secure.update_table_df(df=df,tablename='ucs.chw_performance',id_columns=['provider_id','event_date'])
-    #         print(x)
-    #     except Exception as e:
-    #         print(e)
+    def fetch_chart_data(self, dashboard,chart_name, filters):
+        chart=self.list_charts(dashboard,[chart_name])
+        resp = JsonQ.from_response(self.get(f"/api/v1/chart/{chart.str('id')}"))
+        query = JsonQ.from_json(resp.get('result.query_context').root)
+        query.merge_many({
+           'queries[*].filters': filters,
+           'result_format':'csv',
+           'result_type':'full',})
+        resp = self.post("/api/v1/chart/data", json=query.root)
+        df=pd.read_csv(StringIO(resp.text),dtype=str)
+        df.columns=[re.sub(r'\W+','_',col.strip()).lower() for col in df.columns]
+        return df 

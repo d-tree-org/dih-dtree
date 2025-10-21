@@ -2,7 +2,8 @@ import re
 from collections import deque
 import json
 import re
-from typing import Any, List, Callable, Optional
+from typing import Any, Dict, List, Callable, Optional, Tuple
+from functools import wraps
 from datetime import datetime
 import requests,os
 import dihlibs.functions as fn
@@ -18,11 +19,11 @@ class BoolEvaluator:
         """Convert an infix expression to postfix notation."""
         output = []
         operators = deque()
-        token_pattern = r"\d+\.?\d*|'.*?'|[a-zA-Z]+|[+\-*/^<>!=&|~]+|[()]"
+        token_pattern = r'\d+\.?\d*|".*?"|\'.*?\'|[a-zA-Z]+|[+\-*/^<>!=&|~]+|[()]'
         tokens = re.findall(token_pattern, infix)
 
         for token in tokens:
-            if re.match(r"\d+\.?\d*|'.*?'|[a-zA-Z]+", token):
+            if re.match(r'\d+\.?\d*|".*?"|\'.*?\'|[a-zA-Z]+', token):
                 output.append(token)
             elif token == "(" or token == ')':
                 self._handle_brackets(output,operators,token)
@@ -39,7 +40,7 @@ class BoolEvaluator:
     def evaluate_postfix(self, postfix: str) -> bool:
         """Evaluate a postfix expression."""
         stack = []
-        tokens = re.compile(r"\d+\.?\d*|'[^']*'|[a-zA-Z]+|[+\-*/^<>!=&|~]+").findall(postfix);
+        tokens = re.compile(r'\d+\.?\d*|"[^"]*"|\'[^\']*\'|[a-zA-Z]+|[+\-*/^<>!=&|~]+').findall(postfix);
         for token in tokens:
             if token.lower() == "true":
                 stack.append(1.0)
@@ -47,7 +48,7 @@ class BoolEvaluator:
                 stack.append(0.0)
             elif re.match(r"\d+\.?\d*", token):
                 stack.append(float(token))
-            elif token.startswith("'") and token.endswith("'"):
+            elif (token.startswith("'") and token.endswith("'")) or (token.startswith('"') and token.endswith('"')):
                 stack.append(token[1:-1])
             elif self.is_operator(token):
                 self.operate(token, stack)
@@ -75,17 +76,17 @@ class BoolEvaluator:
         """Apply an operator to operands from the stack."""
         if token == "!":
             b = stack.pop()
-            if isinstance(b, float):
-                answer = 1.0 if b == 0 else 0.0
-            else:
-                raise ValueError(
-                    f"Unsupported operand type for operator: {token} operand {b}"
-                )
+            b_val = self._coerce_to_bool(b)
+            answer = 1.0 if b_val == 0 else 0.0
         else:
             b = stack.pop()
             a = stack.pop()
             if isinstance(a, float) and isinstance(b, float):
                 answer = self.apply_operator(token, a, b)
+            elif token in ("&&", "||"):
+                a_bool = self._coerce_to_bool(a)
+                b_bool = self._coerce_to_bool(b)
+                answer = self.apply_operator(token, a_bool, b_bool)
             elif self.is_string_operator(token):
                 answer = self.apply_string_operator(token, str(a), str(b))
             else:
@@ -93,6 +94,25 @@ class BoolEvaluator:
                     f"Unsupported operand types for operator: {token} operands {a} and {b}"
                 )
         stack.append(answer)
+
+    def _coerce_to_bool(self, value: Any) -> float:
+        """Coerce different operand types into boolean-equivalent floats."""
+        if isinstance(value, float):
+            return value
+        if isinstance(value, bool):
+            return 1.0 if value else 0.0
+        if isinstance(value, int):
+            return 1.0 if value != 0 else 0.0
+        if isinstance(value, str):
+            stripped = value.strip()
+            lowered = stripped.lower()
+            if lowered in ("", "false", "none", "null"):
+                return 0.0
+            try:
+                return 0.0 if float(stripped) == 0 else 1.0
+            except ValueError:
+                return 1.0
+        return 1.0 if value else 0.0
 
     def is_operator(self, token: str) -> bool:
         """Check if a token is an operator."""
@@ -191,20 +211,33 @@ class JsonQ:
         self.root = data if not isinstance(data,JsonQ) else data.root
         self.bool_evaluator = BoolEvaluator()  # Add BoolEvaluator instance
 
-    @classmethod
-    def from_json(cls, json_str: str) -> "JsonQ":
-        """Create JsonQ from a JSON string."""
-        try:
-            return cls(json.loads(json_str))
-        except json.JSONDecodeError:
-            return cls("")
+    @staticmethod
+    def _safe_constructor(*exceptions: Tuple[type, ...]):
+        def decorator(func: Callable):
+            @wraps(func)
+            def wrapper(cls, *args, **kwargs):
+                handled_exceptions = exceptions or (Exception,)
+                try:
+                    return func(cls, *args, **kwargs)
+                except handled_exceptions:
+                    return cls("")
+            return wrapper
+        return decorator
 
     @classmethod
+    @_safe_constructor(json.JSONDecodeError, TypeError)
+    def from_json(cls, json_str: str) -> "JsonQ":
+        """Create JsonQ from a JSON string."""
+        return cls(json.loads(json_str))
+
+    @classmethod
+    @_safe_constructor(Exception)
     def from_file(cls, file_path: str) -> "JsonQ":
         """Create JsonQ from a file."""
         return cls(fn.load_file_data(file_path))
 
     @classmethod
+    @_safe_constructor(Exception)
     def from_folder(cls, folder: str) -> "JsonQ":
         """Create JsonQ from a folder."""
         return cls([ fn.load_file_data(f'{folder}/{file}')
@@ -212,28 +245,39 @@ class JsonQ:
         ])
 
     @classmethod
+    @_safe_constructor(requests.RequestException, json.JSONDecodeError, ValueError)
     def from_url(cls, url: str, *args, **kwargs) -> "JsonQ":
         """Create JsonQ from a URL."""
-        try:
-            response = requests.get(url, timeout=10,*args,**kwargs)
-            response.raise_for_status()
-            return cls(response.json())
-        except (requests.RequestException, json.JSONDecodeError):
-            return cls("")
+        response = requests.get(url, timeout=10,*args,**kwargs)
+        response.raise_for_status()
+        return cls(response.json())
 
     @classmethod
+    def from_response(cls, response) -> "JsonQ":
+        """Create JsonQ from a requests-like response object."""
+        if response is None:
+            return cls("")
+        json_loader = getattr(response, "json", None)
+        if callable(json_loader):
+            try:
+                return cls(json_loader())
+            except (ValueError, json.JSONDecodeError):
+                pass
+        text = getattr(response, "text", "")
+        return cls(text if text is not None else "")
+
+    @classmethod
+    @_safe_constructor(Exception)
     def from_secret(cls, filename:str,overwrite=False):
         return cls(fn.load_secret_file(filename,overwrite))
 
     @classmethod
+    @_safe_constructor(TypeError, json.JSONDecodeError)
     def from_object(cls, obj: Any) -> "JsonQ":
         """Create JsonQ from a Python object."""
         if cls._is_json_primitive(obj):
             return cls(obj)
-        try:
-            return cls(json.loads(json.dumps(obj)))
-        except (TypeError, json.JSONDecodeError):
-            return cls(obj)
+        return cls(json.loads(json.dumps(obj)))
 
     def to_file(self, file_path: str) -> bool:
         """Write JSON data to a file."""
@@ -404,12 +448,14 @@ class JsonQ:
                 var = match.group(1)
                 val = self._prep_variable_for_expression(obj.get(var))
                 if val is None:
-                    return
+                    val = "false"
                 exp = exp.replace(f"@.{var}", val)
             if self._evaluate_bool(exp):
                 results.append(obj)
         elif self._is_json_primitive(obj) and key:
             val = self._prep_variable_for_expression(obj)
+            if val is None:
+                val = "false"
             if val and self._evaluate_bool(expression.replace(f"@.{key}", val)):
                 results.append(obj)
 
@@ -530,7 +576,133 @@ class JsonQ:
 
     def add(self, json_path: str, value: Any) -> None:
         """Add a value to the root."""
-        self.put(json_path,value,False)
+        targets = self._find(json_path)
+        appended = False
+        for target in targets:
+            container = self._get_object_root(target)
+            if isinstance(container, list):
+                container.append(value)
+                appended = True
+        if not appended:
+            self.put(json_path, value, False)
+
+    def merge(self, json_path: str, value: Any, list_policy: str = "extend") -> None:
+        """Merge value into the node(s) at the specified path."""
+        helper = self._MergeContext(self, value, list_policy)
+        if helper.merge_existing(json_path):
+            return
+        for container, field in helper.parent_targets(json_path):
+            helper.merge_into(container, field)
+
+    def merge_many(self, mapping: Dict[str, Any], *, list_policy: str = "extend") -> None:
+        """Apply multiple merge operations from a path-value mapping."""
+        if not isinstance(mapping, dict):
+            raise TypeError("merge_many expects a mapping of json paths to values")
+        for path, value in mapping.items():
+            resolved_path = "" if path is None else path
+            self.merge(resolved_path, value, list_policy=list_policy)
+
+    class _MergeContext:
+        _FIELD_PATTERN = re.compile(r'(\["[^"]*."\]|(?<=\.)[^.\]]+|^[^.\]]+)$')
+
+        def __init__(self, owner: "JsonQ", value: Any, list_policy: str):
+            self.owner = owner
+            self.value = value
+            self.list_policy = list_policy
+
+        def merge_existing(self, json_path: str) -> bool:
+            try:
+                nodes = self.owner._find(json_path)
+            except Exception:
+                return False
+            merged = False
+            for node in nodes:
+                target = self.owner._get_object_root(node)
+                if isinstance(target, (dict, list)):
+                    self.owner._merge_values(target, self.value, self.list_policy)
+                    merged = True
+            return merged
+
+        def parent_targets(self, json_path: str):
+            match = self._FIELD_PATTERN.search(json_path or "")
+            if not match:
+                yield self.owner.root, None
+                return
+            raw_field = match.group(0)
+            field = re.sub(r'(^[\s"\[]+|[\s"\]]+$)', "", raw_field)
+            parent_path = json_path[: match.start()]
+            try:
+                containers = (
+                    self.owner._find(parent_path) if parent_path else [self.owner.root]
+                )
+            except Exception:
+                containers = []
+            for container in containers:
+                yield self.owner._get_object_root(container), field
+
+        def merge_into(self, container: Any, field: Optional[str]) -> None:
+            if isinstance(container, dict):
+                self._merge_dict(container, field)
+            elif isinstance(container, list):
+                self._merge_list(container, field)
+
+        def _merge_dict(self, container: Dict[str, Any], field: Optional[str]) -> None:
+            if not field:
+                self.owner._merge_values(container, self.value, self.list_policy)
+                return
+            if field not in container or container[field] is None:
+                container[field] = self.value
+            else:
+                container[field] = self.owner._merge_values(
+                    container[field], self.value, self.list_policy
+                )
+
+        def _merge_list(self, container: List[Any], field: Optional[str]) -> None:
+            if not field:
+                self.owner._merge_into_list(container, self.value, self.list_policy)
+                return
+            if self.owner._INTEGER.match(field):
+                idx = int(field)
+                if 0 <= idx < len(container):
+                    container[idx] = self.owner._merge_values(
+                        container[idx], self.value, self.list_policy
+                    )
+                    return
+            self.owner._merge_into_list(container, self.value, self.list_policy)
+
+    def _merge_values(self, target: Any, incoming: Any, list_policy: str) -> Any:
+        """Merge incoming value into target, returning the merged value."""
+        target_root = self._get_object_root(target)
+        incoming_root = self._get_object_root(incoming)
+
+        if isinstance(target_root, dict) and isinstance(incoming_root, dict):
+            for key, value in incoming_root.items():
+                if key in target_root and isinstance(target_root[key], (dict, list)) and isinstance(value, (dict, list)):
+                    target_root[key] = self._merge_values(target_root[key], value, list_policy)
+                else:
+                    target_root[key] = value
+            return target_root
+
+        if isinstance(target_root, list):
+            self._merge_into_list(target_root, incoming_root, list_policy)
+            return target_root
+
+        return incoming_root
+
+    def _merge_into_list(self, target: List[Any], incoming: Any, list_policy: str) -> None:
+        """Merge incoming value into list according to policy."""
+        if list_policy == "replace" and isinstance(incoming, list):
+            target.clear()
+            target.extend(incoming)
+            return
+
+        if isinstance(incoming, list):
+            if list_policy == "append":
+                target.append(incoming)
+            else:  # default extend
+                target.extend(incoming)
+        else:
+            target.append(incoming)
 
     def _put_in_container(
         self, override: bool, container: Any, key: str, value: Any
@@ -600,7 +772,7 @@ class JsonQ:
                 return "true"
             if self._VALUED_FALSE.match(val):
                 return "false"
-            return f"'{val}'"
+            return json.dumps(val)
         return None
 
     def _value_at_key(self, key: str, obj: Any) -> Any:

@@ -1,6 +1,6 @@
 import pandas as pd,sys,re,json
 import requests as rq
-import pkg_resources as pkg
+from importlib import resources
 from dihlibs import drive as gd,cron_logger as logger
 from dihlibs import functions as fn
 
@@ -15,8 +15,9 @@ class Meta:
         self._map['description']=''
 
     def push_new_elements(self):
-        file = pkg.resource_filename("dihlibs", "data/dhis_templates/data_element.json")
-        template=pd.read_json(file,orient='records')
+        template_path = resources.files("dihlibs").joinpath("data/dhis_templates/data_element.json")
+        with template_path.open("r", encoding="utf-8") as fh:
+            template = pd.read_json(fh, orient='records')
         template=template[[x for x in template.columns if x not in self._map.columns]]
         new=self._map[['name','shortName','description','id']].dropna(subset=['name','shortName'])
 
