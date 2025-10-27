@@ -3,8 +3,6 @@ from collections import namedtuple
 import dihlibs.functions as fn
 
 
-Graph = namedtuple("Graph", ["get"])
-
 
 class Node:
     # class Node(JSONSerializable):

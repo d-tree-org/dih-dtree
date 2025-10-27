@@ -200,7 +200,9 @@ class JsonQ:
         r"(?:\w+|\"[^\"]+\")(?:\.(?:\w+|\"[^\"]+\"))*)?)?"  # Optional word or quoted string with dots
         r"(\[[^]]+])?"  # Fourth capturing group: matches brackets with content inside
     )
-    _JSON_VARIABLE = re.compile(r"@\.(\w+)")
+    _JSON_PATH_REFERENCE = re.compile(
+        r"@(?:\.[A-Za-z0-9_\-]+(?:\[[^\]]*\])?)+"
+    )
     _VALUED_TRUE = re.compile(r"(?i)yes|ndio|ndiyo|true")
     _VALUED_FALSE = re.compile(r"(?i)hapana|no|false")
 
@@ -437,26 +439,52 @@ class JsonQ:
             obj, lambda k, v: self._evaluate_filter(expression, k, v, results)
         )
 
+    def _substitute_path_references(self, expression: str, context: Any) -> str:
+        """Replace @.path references with their evaluated values."""
+        if not expression or not self._JSON_PATH_REFERENCE.search(expression):
+            return expression
+        root = self._get_object_root(context)
+        jq_context = JsonQ(root)
+
+        def replace(match: re.Match) -> str:
+            path = match.group(0)[2:]  # strip leading "@."
+            try:
+                value = jq_context.get(path).val()
+            except Exception:
+                value = None
+            prepared = self._prep_variable_for_expression(value)
+            if prepared is None:
+                return "null"
+            return prepared
+
+        return self._JSON_PATH_REFERENCE.sub(replace, expression)
+
     def _evaluate_filter(
         self, expression: str, key: str, obj: Any, results: List[Any]
     ) -> None:
         """Evaluate filter expression."""
         obj = self._get_object_root(obj)
+        exp = self._substitute_path_references(expression, obj)
         if isinstance(obj, dict):
-            exp = expression
-            for match in self._JSON_VARIABLE.finditer(exp):
-                var = match.group(1)
-                val = self._prep_variable_for_expression(obj.get(var))
-                if val is None:
-                    val = "false"
-                exp = exp.replace(f"@.{var}", val)
+            exp = re.sub(
+                r"@(?!\.)",
+                "true" if obj else "false",
+                exp,
+            )
             if self._evaluate_bool(exp):
                 results.append(obj)
-        elif self._is_json_primitive(obj) and key:
-            val = self._prep_variable_for_expression(obj)
-            if val is None:
-                val = "false"
-            if val and self._evaluate_bool(expression.replace(f"@.{key}", val)):
+        elif self._is_json_primitive(obj):
+            val = self._prep_variable_for_expression(obj) or "false"
+            exp = re.sub(r"@(?!\.)", val, exp)
+            if self._evaluate_bool(exp):
+                results.append(obj)
+        elif isinstance(obj, list):
+            exp = re.sub(
+                r"@(?!\.)",
+                "true" if obj else "false",
+                exp,
+            )
+            if self._evaluate_bool(exp):
                 results.append(obj)
 
     def _evaluate_bool(self, expression: str) -> bool:
@@ -773,6 +801,11 @@ class JsonQ:
             if self._VALUED_FALSE.match(val):
                 return "false"
             return json.dumps(val)
+        if isinstance(val, (dict, list)):
+            try:
+                return json.dumps(val, sort_keys=True)
+            except TypeError:
+                return None
         return None
 
     def _value_at_key(self, key: str, obj: Any) -> Any:
