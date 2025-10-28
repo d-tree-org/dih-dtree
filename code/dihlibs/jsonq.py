@@ -178,7 +178,7 @@ class BoolEvaluator:
         elif op == "<=":
             return 1.0 if a <= b else 0.0
         elif op == "~":
-            return 1.0 if re.match(b, a) else 0.0
+            return 1.0 if re.search(b, a) else 0.0
         else:
             raise ValueError(f"Unsupported operator for strings: {op}")
 

@@ -193,6 +193,8 @@ def file_binary(file_name):
 
 def text(filename, text=None, mode="w"):
     if text is None:
+        if not os.path.exists(filename):
+            return ''
         with open(filename, mode="r") as file:
             return file.read()
     with open(filename, mode) as file:
