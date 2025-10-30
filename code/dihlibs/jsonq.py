@@ -7,6 +7,7 @@ from functools import wraps
 from datetime import datetime
 import requests,os
 import dihlibs.functions as fn
+import yaml
 
 
 class BoolEvaluator:
@@ -106,7 +107,7 @@ class BoolEvaluator:
         if isinstance(value, str):
             stripped = value.strip()
             lowered = stripped.lower()
-            if lowered in ("", "false", "none", "null"):
+            if lowered in ("", "false", "none", "null","[]","{}","()"):
                 return 0.0
             try:
                 return 0.0 if float(stripped) == 0 else 1.0
@@ -188,7 +189,7 @@ class JsonQ:
     _INTEGER = re.compile(r"^\d+$")
     _REGULAR_PATH = re.compile(r"\w+(?:\.\w+)*")
     _ARRAY = re.compile(
-        r"\[(?:(\??\(.+\))|(-?\d*:?-?\d*(?:,-?\d*:?-?\d*)*)|(\*)|(([`\"'])(.+?)\5))]"
+        r"\[(?:(\??\(.+\)|\s*[@\$].*)|(-?\d*:?-?\d*(?:,-?\d*:?-?\d*)*)|(\*)|(([`\"'])(.+?)\5))]"
     )
     _GLOBED_PATH = re.compile(r"(?=.*\*)(?=.*\w)[^.\[\]()?'\"]*")
     _WILDCARD = re.compile(r"\.{2,3}(?:" + _REGULAR_PATH.pattern + ")?")
@@ -199,9 +200,6 @@ class JsonQ:
         r"(\.{2,3}(?:"  # Third capturing group: matches ".." or "..."
         r"(?:\w+|\"[^\"]+\")(?:\.(?:\w+|\"[^\"]+\"))*)?)?"  # Optional word or quoted string with dots
         r"(\[[^]]+])?"  # Fourth capturing group: matches brackets with content inside
-    )
-    _JSON_PATH_REFERENCE = re.compile(
-        r"@(?:\.[A-Za-z0-9_\-]+(?:\[[^\]]*\])?)+"
     )
     _VALUED_TRUE = re.compile(r"(?i)yes|ndio|ndiyo|true")
     _VALUED_FALSE = re.compile(r"(?i)hapana|no|false")
@@ -277,8 +275,11 @@ class JsonQ:
     @_safe_constructor(TypeError, json.JSONDecodeError)
     def from_object(cls, obj: Any) -> "JsonQ":
         """Create JsonQ from a Python object."""
+            
         if cls._is_json_primitive(obj):
             return cls(obj)
+        if isinstance(obj,JsonQ):
+            return JsonQ.from_object(obj.root)
         return cls(json.loads(json.dumps(obj)))
 
     def to_file(self, file_path: str) -> bool:
@@ -320,6 +321,12 @@ class JsonQ:
 
     def dumps(self,indent=None):
         return self.to_string(indent)
+
+    def print(self,indent=None):
+        print(self.to_string(indent))
+
+    def printy(self,indent=None):
+        print(yaml.dump(self.root,indent=indent))
 
     def get(self, path):
         return self._from_results(self._find(path))
@@ -434,58 +441,29 @@ class JsonQ:
 
     def _filter(self, expression: str, obj: Any, results: List[Any]) -> None:
         """Filter objects based on an expression."""
-        expression = re.findall(r"\((.*)\)", expression)[0]
+        exp = re.findall(r"\((.*)\)", expression) 
+        exp = expression if not exp else exp[0]
+
         self._flat_for_each(
-            obj, lambda k, v: self._evaluate_filter(expression, k, v, results)
+            obj, lambda k, v: self._evaluate_filter(exp, k, v, results)
         )
-
-    def _substitute_path_references(self, expression: str, context: Any) -> str:
-        """Replace @.path references with their evaluated values."""
-        if not expression or not self._JSON_PATH_REFERENCE.search(expression):
-            return expression
-        root = self._get_object_root(context)
-        jq_context = JsonQ(root)
-
-        def replace(match: re.Match) -> str:
-            path = match.group(0)[2:]  # strip leading "@."
-            try:
-                value = jq_context.get(path).val()
-            except Exception:
-                value = None
-            prepared = self._prep_variable_for_expression(value)
-            if prepared is None:
-                return "null"
-            return prepared
-
-        return self._JSON_PATH_REFERENCE.sub(replace, expression)
 
     def _evaluate_filter(
         self, expression: str, key: str, obj: Any, results: List[Any]
     ) -> None:
         """Evaluate filter expression."""
-        obj = self._get_object_root(obj)
-        exp = self._substitute_path_references(expression, obj)
-        if isinstance(obj, dict):
-            exp = re.sub(
-                r"@(?!\.)",
-                "true" if obj else "false",
-                exp,
-            )
-            if self._evaluate_bool(exp):
-                results.append(obj)
-        elif self._is_json_primitive(obj):
-            val = self._prep_variable_for_expression(obj) or "false"
-            exp = re.sub(r"@(?!\.)", val, exp)
-            if self._evaluate_bool(exp):
-                results.append(obj)
-        elif isinstance(obj, list):
-            exp = re.sub(
-                r"@(?!\.)",
-                "true" if obj else "false",
-                exp,
-            )
-            if self._evaluate_bool(exp):
-                results.append(obj)
+        exp=expression
+        ctx=JsonQ.from_object(obj)
+        if re.fullmatch(r'\s*[@$]\s*',expression):
+            exp=self._prep_variable_for_expression(bool(ctx.root))
+
+        """Replace @.path references with their evaluated values."""
+        if var:=re.search(r'^\s*[@$](\.?[.\w\(\)"\'\[\}\]]+)?',exp):
+            prepared = self._prep_variable_for_expression(ctx.get(var[1].strip()).val())
+            exp=expression.replace(var[0],prepared)
+
+        if self._evaluate_bool(exp):
+            results.append(obj)
 
     def _evaluate_bool(self, expression: str) -> bool:
         """Evaluate a boolean expression using BoolEvaluator."""
@@ -790,7 +768,7 @@ class JsonQ:
     def _prep_variable_for_expression(self, val: Any) -> Optional[str]:
         """Prepare a value for expression evaluation."""
         if val is None:
-            return None
+            return "null"
         if isinstance(val, (int, float)):
             return str(val)
         if isinstance(val, bool):
@@ -801,12 +779,12 @@ class JsonQ:
             if self._VALUED_FALSE.match(val):
                 return "false"
             return json.dumps(val)
-        if isinstance(val, (dict, list)):
+        if isinstance(val, (dict, list)) and val:
             try:
                 return json.dumps(val, sort_keys=True)
             except TypeError:
-                return None
-        return None
+                return "null"
+        return "null"
 
     def _value_at_key(self, key: str, obj: Any) -> Any:
         """Access a value by key or index."""
