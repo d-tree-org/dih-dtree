@@ -441,37 +441,63 @@ class JsonQ:
 
     def _filter(self, expression: str, obj: Any, results: List[Any]) -> None:
         """Filter objects based on an expression."""
-        exp = re.findall(r"\((.*)\)", expression) 
-        exp = expression if not exp else exp[0]
+        context = obj if not isinstance(obj,JsonQ) else obj.root
+        # exp = re.findall(r"\((.*)\)", expression) 
+        exp = expression #if not exp else exp[0]
 
+        if re.fullmatch(r'\s*[@$]\s*',exp):
+            exp=str(bool(context)).lower()
+        
         self._flat_for_each(
-            obj, lambda k, v: self._evaluate_filter(exp, k, v, results)
+            context, lambda k, v: self._evaluate_filter(exp, v, results)
         )
+        return results
 
     def _evaluate_filter(
-        self, expression: str, key: str, obj: Any, results: List[Any]
+        self, expression: str, obj: Any, results: List[Any]
     ) -> None:
         """Evaluate filter expression."""
         exp=expression
         ctx=JsonQ.from_object(obj)
-        if re.fullmatch(r'\s*[@$]\s*',expression):
-            exp=self._prep_variable_for_expression(bool(ctx.root))
+        
 
         """Replace @.path references with their evaluated values."""
-        if var:=re.search(r'^\s*[@$](\.?[.\w\(\)"\'\[\}\]]+)?',exp):
-            prepared = self._prep_variable_for_expression(ctx.get(var[1].strip()).val())
-            exp=expression.replace(var[0],prepared)
+        while var:=re.search(r'[@$](\.?[.\w\(\)"\'\[\}\]]+)?',exp):
+            path=var[1] or ''
+            value=ctx.get(path.strip()).val()
+            if self._is_json_primitive(value) or not value:
+                prepared = self._prep_variable_for_expression(value)
+                exp=exp.replace(var[0],prepared)
+            else :
+                 matches=self._evaluate_complex(ctx,exp)
+                 exp=str(matches).lower()
 
-        if self._evaluate_bool(exp):
+        if self.bool_evaluator.evaluate(exp):
             results.append(obj)
 
-    def _evaluate_bool(self, expression: str) -> bool:
-        """Evaluate a boolean expression using BoolEvaluator."""
-        try:
-            return self.bool_evaluator.evaluate(expression)
-        except Exception as e:
-            print(f"Error evaluating expression: {expression}, error: {e}")
-            return False
+
+    def _evaluate_complex(self,obj,expression):        
+        var=re.findall(r'([@$](?:\.?[.\w\(\)"\'\[\}\]]+)?)',expression)
+        zote={k:sorted(list(set(obj.get(k).leaves().values()or [None]))) for k in var}
+        n=1
+        for k,v in zote.items():
+            n=n*len(v)
+        answer=False
+        for i in range(n):
+            row=fn.cartesian_row(zote.values(),i)
+            expr=expression;
+            for j,k in enumerate(zote.keys()):
+                prepared = self._prep_variable_for_expression(row[j])
+                expr=expr.replace(k,prepared)
+            answer= answer or self.bool_evaluator.evaluate(expr)
+        return answer;
+
+
+    def _evaluate_filter_many(self,exp,path,value):
+        prepared=self._prep_variable_for_expression(value)
+        exp=exp.replace(path,prepared)
+        return self.bool_evaluator.evaluate(exp)
+
 
     def _find_matching_path(self,path, obj: Any, results: List[Any]) -> None:
         """Handle wildcard paths."""
@@ -769,21 +795,14 @@ class JsonQ:
         """Prepare a value for expression evaluation."""
         if val is None:
             return "null"
-        if isinstance(val, (int, float)):
-            return str(val)
-        if isinstance(val, bool):
-            return "true" if val else "false"
+        if isinstance(val, (int, float, bool)):
+            return str(val).lower()
         if isinstance(val, str):
             if self._VALUED_TRUE.match(val):
                 return "true"
             if self._VALUED_FALSE.match(val):
                 return "false"
             return json.dumps(val)
-        if isinstance(val, (dict, list)) and val:
-            try:
-                return json.dumps(val, sort_keys=True)
-            except TypeError:
-                return "null"
         return "null"
 
     def _value_at_key(self, key: str, obj: Any) -> Any:
@@ -822,9 +841,11 @@ class JsonQ:
             data = {re.sub(r".+\.(\w+)$", r"\1", key): value for key, value in data.items()}
         return list(data.keys())
 
-    def leaves(self,path='',predicateFunc=None):
+    def leaves(self,path='',predicateFunc=lambda p,current:True):
         """Handle wildcard paths."""
         obj=self.get(path).root
+        if self._is_json_primitive(obj) and predicateFunc(path,obj):
+            return {path:obj}
         res={}
         seen = set()
         stack = [(obj,path)]

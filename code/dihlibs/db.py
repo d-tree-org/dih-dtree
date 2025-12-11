@@ -174,7 +174,7 @@ class DB:
 
     def select_part_matview(self, sql_file):
         sql = fn.text(sql_file)
-        regex = r"create mater[^\(]*\(([^;]+)\)"
+        regex = r"(?i)create mater[^\(]*\(([^;]+)\)"
         select = re.findall(regex, sql, re.MULTILINE | re.IGNORECASE)
         return select[0] if select else sql
 

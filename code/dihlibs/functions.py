@@ -511,3 +511,34 @@ def refresh_token(token,secret_key,lifespan_mins=5,tz=DEFAULT_TIMEZONE):
 def basic_auth(username, password):
     token = b64encode(f"{username}:{password}".encode('utf-8')).decode("ascii")
     return f'Basic {token}'
+
+
+def extract_brackets(sql,start):
+    i=sql.find('(',start)+1
+    stack=['('] if i>-1 else []
+    ptn=re.compile(r'[\(\)]',re.DOTALL)
+    while stack and (m:=ptn.search(sql,i)):
+        i=m.end()
+        if m[0]==')':
+            stack.pop()
+        else:
+            stack.append('(')
+    return  sql[start:i] if not stack else ''
+
+def cartesian_row(vectors,n):
+    answer=[]
+    a=1;
+    for v in vectors:
+        answer.append(v[(int(n/a))%len(v)])
+        a=len(v)*a
+    return answer
+
+def cartesian_column(vectors,n):
+    a=1;
+    b=1
+    for i,v in enumerate(vectors):
+        b=b*len(v)
+        if i<n:
+            a=len(v)*a
+    v=vectors[n]
+    return [v[(int(i/a))%len(v)] for i in range(b)] 
