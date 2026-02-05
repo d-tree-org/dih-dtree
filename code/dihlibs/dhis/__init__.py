@@ -83,11 +83,23 @@ class DHIS:
         df = df.copy()
         rename_sh = pd.read_excel(self._mapping_file, "rename")
         df = self._rename_db_columns(df, rename_sh)
+
         for n in rename_sh[rename_sh.what == "value"].db_column.unique():
             if n not in df.columns:
                 continue
-            x = pd.merge(df, rename_sh, how="left", left_on=n, right_on="db_name")
-            df[n] = x.dhis_name.fillna(df[n])
+
+            rules = rename_sh[(rename_sh.what == "value") & (rename_sh.db_column == n)]
+
+            for _, rule in rules.iterrows():
+                mask = df[n] == rule.db_name
+
+                ctx_col = rule.get("context_column")
+                ctx_val = rule.get("context_value")
+                if pd.notna(ctx_col) and pd.notna(ctx_val) and ctx_col in df.columns:
+                    mask = mask & (df[ctx_col] == ctx_val)
+
+                df.loc[mask, n] = rule.dhis_name
+
         return df
 
     def __prep_key(self, value):
@@ -258,13 +270,22 @@ class DHIS:
             period = self.get_period(date, r.period_type)
             db_val = self.period_to_db_date(period)
             return col_name, db_val, period
+
         e_map = e_map.reset_index().merge(
-            self.datasets, left_on="dataset_id", right_on="id"
+            self.datasets, left_on="dataset_id", right_on="id", how="left"
         )
-        
+
+        missing = e_map[e_map.period_type.isna()]
+        if not missing.empty:
+            invalid_ids = missing.dataset_id.unique().tolist()
+            raise ValueError(
+                f"Invalid dataset_id(s) in mapping file: {invalid_ids}. "
+                f"These IDs do not exist in DHIS2."
+            )
+
         e_map.loc[:, ["period_column", "period_db", "period"]] = e_map.apply(
             set_period_cols, axis=1
-        ).to_list()
+        ).tolist()
         return e_map.set_index("map_key")
 
 

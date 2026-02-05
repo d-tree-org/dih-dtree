@@ -232,6 +232,26 @@ class Graph:
         topo = self.topological_sort()
         return [n for n in topo if n.id in wanted]
 
+    def get_all_dependents(self, target, include_self=False, topo_sorted=False):
+        """
+        Return all downstream dependents (descendants) of `target` as list[Node].
+        These are nodes that directly or indirectly depend on `target`.
+        If topo_sorted=True, return them in global topological (build) order.
+        """
+        start_id = self._resolve_id(target)
+
+        nodes = self.dfs(target)
+
+        if not include_self:
+            nodes = [n for n in nodes if n.id != start_id]
+
+        if not topo_sorted:
+            return nodes
+
+        wanted = {n.id for n in nodes}
+        topo = self.topological_sort()
+        return [n for n in topo if n.id in wanted]
+
     # ------------------------------------------------------------------
     # Topological sort
     # ------------------------------------------------------------------

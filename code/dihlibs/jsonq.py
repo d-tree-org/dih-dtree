@@ -513,7 +513,7 @@ class JsonQ:
             self._flat_for_each(
                 current, lambda k, v: stack.append((f'{p}.{k}',v)) if v is not None else None
             )
-            if current != obj  and p.endswith(path):
+            if current is not obj  and p.endswith(path):
                 results.append(current)
 
     def get_strings(self, json_path: str = "[*]") -> List[str]:
