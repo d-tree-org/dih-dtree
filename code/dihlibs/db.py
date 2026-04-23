@@ -113,15 +113,15 @@ class DB:
         return results
 
     def exec(self, query, params=None):
-        query = self._bind(query)
+        query = self._bind(query, params)
         with self.Session() as session:
             try:
                 rs = session.execute(text(query), params)
                 session.commit()
                 return rs.rowcount
-            except Exception as e:
+            except Exception:
                 session.rollback()
-                print(f"Error executing query: {e}")
+                raise
 
     def _bind(self, sql, params=None):
         if params is None:
