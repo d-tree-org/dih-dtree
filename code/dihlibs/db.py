@@ -1,6 +1,5 @@
 from sqlalchemy import create_engine, text
 from enum import auto, Enum
-from sqlalchemy.exc import SQLAlchemyError
 import pandas as pd
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy import text
@@ -62,8 +61,11 @@ class DB:
             self._ssh_connection = self.open_ssh(key_file)
             self._ssh_connection.wait(25)
 
-        self._conn = self.engine.connect()
-        self._conn.execution_options(isolation_level="AUTOCOMMIT")
+        # capture the return: in SQLAlchemy < 1.4 execution_options() returns a
+        # branched connection, so the old `self._conn.execution_options(...)`
+        # (discarding the result) silently left the connection in transaction
+        # mode -> reads sat idle-in-transaction holding ACCESS SHARE locks.
+        self._conn = self.engine.connect().execution_options(isolation_level="AUTOCOMMIT")
         return (self._ssh_connection, self._conn)
 
     def close(self):
@@ -133,17 +135,20 @@ class DB:
     def query(
         self, sql, params=None, format: ResultFormat = ResultFormat.LIST
     ):
-        if self._conn is None:
+        # Bring up the ssh tunnel once for tunnelled connections.
+        if self.ssh_command and not self._ssh_connection:
             self.connect()
-        try:
-            sql = self._bind(sql, params)
-            result = self._conn.execute(text(sql), params or {})
+        sql = self._bind(sql, params)
+        # One pooled connection per query, released on block exit. The context
+        # manager closes the connection (ending any open transaction) every
+        # time, so a read never lingers idle-in-transaction holding ACCESS SHARE
+        # locks -- which would block DDL / dbt table refreshes. The engine still
+        # pools and reuses the underlying connections, so this stays efficient.
+        with self.engine.connect() as conn:
+            result = conn.execute(text(sql), params or {})
             cols = result.keys()
             rows = result.fetchall()
-            return format(cols,rows)
-        except SQLAlchemyError:
-            self._conn.rollback()
-            raise
+        return format(cols, rows)
 
     def file(self, filename, params=None, exec=False, *args, **kwargs):
         func = self.query if not exec else self.exec
