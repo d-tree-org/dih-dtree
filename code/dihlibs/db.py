@@ -43,7 +43,16 @@ class DB:
         self.connection_string = connection_url
         self.ssh_command = ssh_command
         self._set_connection_parameters(conf, connection_file, rc)
-        self.engine = create_engine(self.connection_string)
+        # pool_pre_ping tests a pooled connection's liveness before handing it
+        # out, transparently replacing one the server has dropped (e.g. after a
+        # Postgres restart). Without it, a long-lived process serves a dead
+        # connection and the next query fails with "SSL connection has been
+        # closed unexpectedly". pool_recycle caps connection age as a backstop.
+        self.engine = create_engine(
+            self.connection_string,
+            pool_pre_ping=True,
+            pool_recycle=1800,
+        )
         self.Session = sessionmaker(bind=self.engine)
         self._ssh_connection = None
         self._conn = None
