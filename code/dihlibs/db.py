@@ -123,16 +123,80 @@ class DB:
         self.engine.dispose()
         return results
 
-    def exec(self, query, params=None):
+    def exec(self, query, params=None, format: ResultFormat = ResultFormat.LIST):
+        """Run a write statement (INSERT/UPDATE/DELETE/DDL) and COMMIT it.
+
+        Returns the affected rowcount, or -- when the statement carries a
+        RETURNING clause -- the returned rows, formatted exactly like
+        ``query()`` (list of dicts by default).
+
+        Runs inside ``engine.begin()`` so the transaction commits on success
+        and rolls back on exception. This is the only safe path for writes:
+        ``query()`` deliberately rolls back on connection close (so reads
+        don't sit idle-in-transaction holding ACCESS SHARE locks), which
+        silently discards any write sent through it -- including an
+        ``INSERT ... RETURNING``, where the sequence still advances (nextval
+        survives rollback) but the row never persists.
+        """
         query = self._bind(query, params)
-        with self.Session() as session:
-            try:
-                rs = session.execute(text(query), params)
-                session.commit()
-                return rs.rowcount
-            except Exception:
-                session.rollback()
-                raise
+        with self.engine.begin() as conn:
+            result = conn.execute(text(query), params or {})
+            # returns_rows is True for SELECT and for INSERT/UPDATE/DELETE with
+            # a RETURNING clause; False for a plain write or DDL.
+            if result.returns_rows:
+                return format(result.keys(), result.fetchall())
+            return result.rowcount
+
+    def insert(self, table, values: dict, returning=None):
+        """Insert one row from a dict and commit; optionally RETURNING.
+
+            db.insert("eidsr_log", {"signal_id": sid}, returning="signal_id")
+            # -> [{"signal_id": sid}]
+
+        Returns the rowcount when ``returning`` is omitted, else the rows
+        ``query()``-formatted. ``table``/``returning`` are interpolated as SQL,
+        so keep them literal (not user input); the row *values* are bound as
+        parameters.
+        """
+        cols = ", ".join(values)
+        binds = ", ".join(f":{k}" for k in values)
+        sql = f"INSERT INTO {table} ({cols}) VALUES ({binds})"
+        if returning:
+            sql += f" RETURNING {returning}"
+        return self.exec(sql, values)
+
+    def upsert(self, table, values: dict, conflict, update=None, returning=None):
+        """INSERT ... ON CONFLICT DO UPDATE one row from a dict, and commit.
+
+        ``conflict`` is the column (or list of columns) of the unique/PK
+        constraint to match on. ``update`` is the list of columns to overwrite
+        from the would-be-inserted row (via ``EXCLUDED``); it defaults to every
+        non-conflict column. Pass ``update=[]`` for ``DO NOTHING``.
+
+            db.upsert("eidsr_log",
+                      {"signal_id": sid, "last_status": st},
+                      conflict="signal_id",
+                      update=["last_status"])
+
+        Identifiers (``table``/``conflict``/``update``/``returning``) are
+        interpolated as SQL -- keep them literal; values are bound as params.
+        """
+        conflict = [conflict] if isinstance(conflict, str) else list(conflict)
+        if update is None:
+            update = [c for c in values if c not in conflict]
+        cols = ", ".join(values)
+        binds = ", ".join(f":{k}" for k in values)
+        sql = (
+            f"INSERT INTO {table} ({cols}) VALUES ({binds}) "
+            f"ON CONFLICT ({', '.join(conflict)}) DO "
+        )
+        if update:
+            sql += "UPDATE SET " + ", ".join(f"{c} = EXCLUDED.{c}" for c in update)
+        else:
+            sql += "NOTHING"
+        if returning:
+            sql += f" RETURNING {returning}"
+        return self.exec(sql, values)
 
     def _bind(self, sql, params=None):
         if params is None:
